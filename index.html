@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Algohns V9.2 — Quant Asset Manager OS</title>
+  <link rel="icon" href="assets/algohns-dragon.svg" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
+  <link rel="stylesheet" href="assets/styles.css?v=9.2-fix-polish" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="assets/algohns-dragon.svg" alt="Algohns dragon logo" class="brand-logo-img" />
+        <div>
+          <div class="brand-name">Algohns</div>
+          <div class="brand-desc">Quant OS · V9.2</div>
+        </div>
+      </div>
+
+      <nav id="nav" aria-label="Main navigation"></nav>
+
+      <div class="connection-card">
+        <div class="connection-row"><span>Brokers</span><strong>Alpaca + eToro</strong></div>
+        <div class="connection-row"><span>Real money</span><strong class="bad">Locked</strong></div>
+      </div>
+    </aside>
+
+    <main id="main" class="main">
+      <div class="control-bar">
+        <div class="control-left">
+          <span id="algo-dot" class="status-dot"></span>
+          <span id="algo-status" class="status-copy">Stopped</span>
+          <span id="regime-pill" class="regime-pill neutral">Neutral</span>
+          <span id="broker-status" class="broker-copy">Not synced</span>
+        </div>
+        <div class="control-actions">
+          <button data-act="play-pause"><i class="ti ti-player-play"></i><span id="play-copy">Play</span></button>
+          <button data-act="kill" class="danger"><i class="ti ti-power"></i>Kill switch</button>
+          <button data-act="toggle-theme" aria-label="Toggle theme"><i id="theme-icon" class="ti ti-moon"></i></button>
+        </div>
+      </div>
+
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">Control Center</h1>
+          <p id="page-subtitle">Professional portfolio cockpit for Alpaca Demo + eToro Demo.</p>
+        </div>
+      </header>
+
+      <section id="status" class="status info">Ready. Paper/demo trading only. Live-money trading remains disabled.</section>
+      <section id="content"></section>
+      <footer class="footer"><strong>Algohns V9.2:</strong> chart registry, broker-isolated portfolio views, eToro diagnostics and safe demo execution.</footer>
+    </main>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="assets/app.js?v=9.2-fix-polish"></script>
+</body>
+</html>

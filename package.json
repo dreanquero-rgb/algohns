@@ -1,0 +1,19 @@
+{
+  "name": "algohns",
+  "version": "9.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --name algohns",
+    "deploy": "wrangler deploy --name algohns",
+    "secret:etoro:key": "wrangler secret put ETORO_API_KEY --name algohns",
+    "secret:etoro:user": "wrangler secret put ETORO_USER_KEY --name algohns",
+    "secret:etoro:base": "wrangler secret put ETORO_BASE_URL --name algohns",
+    "secret:alpaca:key": "wrangler secret put ALPACA_API_KEY --name algohns",
+    "secret:alpaca:secret": "wrangler secret put ALPACA_SECRET_KEY --name algohns",
+    "secret:alpaca:base": "wrangler secret put ALPACA_BASE_URL --name algohns"
+  },
+  "devDependencies": {
+    "wrangler": "latest"
+  }
+}
