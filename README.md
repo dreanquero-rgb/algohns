@@ -1,36 +1,87 @@
-# Algohns V9.2 · Fix & Polish
+# Algohns V11 — Alpaca Paper Quant Asset Manager OS
 
-Versione V9.2 con interfaccia broker-isolata e hotfix su chart, orders, eToro diagnostics e azioni posizione.
+Algohns V11 is a clean, professional, Alpaca Paper-only base for a Quant Asset Manager OS. It is built as a Cloudflare Worker plus a static vanilla JavaScript frontend. No React, no Vue, no complex build step.
 
-## Cosa cambia in V9.2
+## What this version does
 
-- Sostituito il singolo `window._equityChartInstance` / `_pieChartInstance` con `window._chartRegistry` per evitare conflitti Chart.js tra Control Center, Portfolio Combined, Alpaca ed eToro.
-- `setChartRange()` ora aggiorna il chart corretto per broker tramite ID canvas.
-- `afterRenderPortfolio()` ha retry loop se Chart.js non è ancora caricato.
-- Tooltip Chart.js con tema stabile dark/light, senza dipendere da CSS var lette troppo presto.
-- Date asse X formattate in modo leggibile per backtest e portfolio chart.
-- Bottoni Exit / Reduce con feedback visivo sulla riga durante l'operazione.
-- Reduce 50% corretto: non dimezza due volte quantità/unità.
-- Orders page ripulita: un solo bottone primary, kill switch isolato a destra.
-- Broker bar con Run engine / Send broker / Sync nelle viste Alpaca ed eToro.
-- eToro sync più robusto: legge posizioni anche da strutture nested del portfolio/P&L endpoint.
-- eToro asset cache alimentata anche dalle posizioni reali, così positionId/instrumentId non vengono persi.
-- Order diagnostics: se eToro non prepara ordini perché mancano instrumentId, ora il motivo appare in pagina invece di sembrare un bug silenzioso.
-- Worker eToro: portfolio/orders più robusti su `/trading/info/demo/pnl`, `/portfolio`, `/portfolio-details`, `/account`.
+- Control Center with sticky Play / Pause / Kill Switch
+- Alpaca Paper connection layer
+- Universe Explorer from Alpaca active tradable assets
+- Transparent included/excluded asset reasons
+- Strategy Engine with Defensive, Balanced, Advanced and Aggressive profiles
+- Regime Engine with voting details
+- Portfolio cockpit with allocation treemap and position actions
+- Orders & Control with paper order preview and execution journal
+- Backtest Lab with mandatory Load Backtest Data before Run Backtest
+- Risk Center with drawdown, VaR, CVaR, volatility, beta proxy, concentration and stress tests
+- News Intelligence using Alpaca news when available
+- Export snapshot HTML, trade log CSV, strategy JSON and backtest report
+- Real-money execution locked in both UI and worker
 
-## Nota eToro
+## Required secrets
 
-Algohns non inventa instrumentId eToro. Per inviare ordini demo eToro, l'asset deve avere un `instrumentId` verificato tramite portfolio sync o Universe Explorer/Search eToro. Se manca, la pagina Orders mostra una diagnostica esplicita.
+Cloudflare Worker secrets:
 
-## Sicurezza
+```txt
+ALPACA_API_KEY
+ALPACA_SECRET_KEY
+```
 
-- Alpaca: solo Paper Trading API.
-- eToro: solo Demo execution endpoints.
-- Real-money trading resta bloccato lato UI e worker.
+The project also sets:
 
-## File principali
+```txt
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
+ALPACA_DATA_BASE_URL=https://data.alpaca.markets
+```
 
-- `public/assets/app.js` — SPA frontend, rendering, portfolio, orders, diagnostics.
-- `public/assets/styles.css` — design system V9 flat.
-- `_worker.js` — Cloudflare Worker API adapter.
-- `public/index.html` — shell SPA.
+The worker refuses non-paper Alpaca execution.
+
+## Deploy target
+
+Worker name:
+
+```txt
+algohns
+```
+
+Expected URL:
+
+```txt
+https://algohns.dreanquero.workers.dev
+```
+
+## One-click Windows flow
+
+1. Extract the zip into a fresh folder.
+2. Double-click `START_HERE.bat`.
+3. Insert Alpaca Paper keys when asked, or keep existing saved keys.
+4. Open the deployed URL.
+5. Press `CTRL + F5`.
+6. Go to Settings / Connections and run Live build check.
+
+## Files
+
+```txt
+_worker.js
+package.json
+wrangler.toml
+public/index.html
+public/assets/app.js
+public/assets/styles.css
+public/assets/algohns-mark.svg
+START_HERE.bat
+DEPLOY.bat
+CONFIGURA_CHIAVI.bat
+SETUP_ALGOHNS.ps1
+QUICK_START_AUTOMATICO.md
+QUICK_START_ALPACA.md
+```
+
+## QA performed before packaging
+
+```txt
+node --check _worker.js
+node --check public/assets/app.js
+```
+
+Also checked: clean V11 branding, Alpaca Paper-only UI, stable navigation and real-money lock.

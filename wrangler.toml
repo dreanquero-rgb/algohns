@@ -1,11 +1,16 @@
 name = "algohns"
 main = "_worker.js"
-compatibility_date = "2026-06-10"
+compatibility_date = "2026-06-14"
+workers_dev = true
 
 [assets]
 directory = "./public"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 
-[triggers]
-crons = ["0 13 * * 1-5", "30 13 * * 1-5"]
+[observability]
+enabled = true
+
+[vars]
+ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
+ALPACA_DATA_BASE_URL = "https://data.alpaca.markets"

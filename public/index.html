@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Algohns V11 — Quant Asset Manager OS</title>
+  <meta name="description" content="Algohns V11 — professional Alpaca Paper quant cockpit with universe discovery, strategy engine, backtesting, portfolio monitoring, risk and order control." />
+  <link rel="icon" href="/assets/algohns-mark.svg" />
+  <link rel="stylesheet" href="/assets/styles.css?v=11.0.0" />
+  <script defer src="/assets/app.js?v=11.0.0"></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="/assets/algohns-mark.svg" alt="Algohns" />
+        <div>
+          <div class="brand-title">ALGOHNS</div>
+          <div class="brand-desc">Quant OS · V11</div>
+        </div>
+      </div>
+      <nav id="nav" class="nav"></nav>
+      <div class="side-card">
+        <div class="tiny-label">Broker</div>
+        <div class="conn-row"><span>Alpaca Paper</span><strong id="conn-alpaca" class="muted">—</strong></div>
+        <div class="tiny-label mt">Safety</div>
+        <div class="lock-row"><span class="dot locked"></span>Real money locked</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="sticky-control">
+        <div class="ctrl-left">
+          <div id="page-kicker" class="kicker">Control Center</div>
+          <h1 id="page-title">Algohns V11</h1>
+          <p id="page-subtitle">Alpaca Paper Quant Asset Manager OS</p>
+        </div>
+        <div class="ctrl-actions">
+          <button id="btn-sync" class="btn ghost">Sync</button>
+          <button id="btn-play" class="btn primary">Play</button>
+          <button id="btn-pause" class="btn warn">Pause</button>
+          <button id="btn-kill" class="btn danger">Kill Switch</button>
+        </div>
+      </div>
+      <section id="alerts" class="alerts"></section>
+      <section id="app" class="app-card"></section>
+      <footer class="footer">
+        <span><strong>Algohns V11</strong> · Alpaca Paper cockpit · Real money locked</span>
+        <span id="build-chip" class="mono">loading…</span>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

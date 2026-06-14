@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Algohns mark">
+  <defs>
+    <linearGradient id="g" x1="16" y1="12" x2="116" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E2B86B"/>
+      <stop offset="0.45" stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="s" x1="32" y1="24" x2="96" y2="104"><stop stop-color="#fff"/><stop offset="1" stop-color="#D9A84F"/></linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="#070B13" stroke="url(#g)" stroke-width="5"/>
+  <path d="M78 24c-15 5-28 18-39 39l-9 18 19-9c5 19 23 27 43 22-13-6-20-16-19-30 10-3 18-8 25-16-9 1-17-1-24-7 5-5 8-11 4-17Z" fill="url(#s)"/>
+  <path d="M53 78h22l9 18H70l-4-8H51l-4 8H33l27-56h14l-21 38Zm4-11h8l-3-8-5 8Z" fill="#F8FAFC" opacity=".95"/>
+</svg>
