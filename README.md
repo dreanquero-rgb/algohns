@@ -17,6 +17,21 @@ Algohns V11 is a clean, professional, Alpaca Paper-only base for a Quant Asset M
 - News Intelligence using Alpaca news when available
 - Export snapshot HTML, trade log CSV, strategy JSON and backtest report
 - Real-money execution locked in both UI and worker
+- Autonomous Strategy Engine runs on a Cloudflare Cron Trigger, on the edge, with or without the site open
+
+## Always-on autonomous trading
+
+The Strategy Engine now runs server-side on a Cloudflare Cron Trigger (every 5 minutes by default, see `[triggers]` in `wrangler.toml`), not just when you click "Run Strategy Engine" in the browser. State (Play/Pause/Kill, strategy, exclusions) and the order journal are persisted in a Cloudflare KV namespace so the engine keeps acting on your behalf even if no browser tab is open.
+
+Setup:
+
+```bash
+wrangler kv namespace create algohns-engine-state
+```
+
+Copy the printed namespace `id` into the `[[kv_namespaces]]` block in `wrangler.toml` (replace `REPLACE_WITH_KV_NAMESPACE_ID`), then deploy. Press Play in Control Center once to arm the autonomous engine; Pause/Kill stop it the same way, from any device.
+
+The worker only submits paper orders autonomously when: engine state is "running" (Play pressed), the Kill Switch is not active, and the Alpaca Paper market clock reports the market open.
 
 ## Required secrets
 

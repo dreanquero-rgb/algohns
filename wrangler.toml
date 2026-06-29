@@ -14,3 +14,15 @@ enabled = true
 [vars]
 ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 ALPACA_DATA_BASE_URL = "https://data.alpaca.markets"
+
+# Runs the autonomous Strategy Engine on the edge every 5 minutes, with or
+# without the site open. Submits paper orders only while engine state is
+# "running" (Play) and the Alpaca Paper market clock reports open.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Create with: wrangler kv namespace create algohns-engine-state
+# then replace the id below with the namespace id it prints.
+[[kv_namespaces]]
+binding = "ALGOHNS_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"

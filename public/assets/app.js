@@ -61,7 +61,8 @@ const state = {
   backtest: { stale: true, loaded: false, running: false, dataset: null, result: null, error: null, source: null },
   journal: [],
   news: { items: [], clusters: [], loadedAt: null, error: null },
-  exclusions: []
+  exclusions: [],
+  engine: null
 };
 
 const $ = sel => document.querySelector(sel);
@@ -81,6 +82,7 @@ function init() {
   setPage(PAGES.some(p => p.id === id) ? id : 'control', true);
   checkBuild();
   testConnection(false);
+  syncEngineState(false);
 }
 
 function bindShell() {
@@ -204,24 +206,56 @@ async function syncAll(show = true) {
 async function playEngine() {
   state.running = true;
   state.killed = false;
-  alert('Demo algorithm set to Play. New live orders still require manual confirmation.', 'good');
+  try {
+    await api('/api/engine/state', { method: 'POST', body: JSON.stringify({ action: 'play', config: engineConfigPayload() }) });
+    alert('Algorithm set to Play. The autonomous engine now runs on Cloudflare even if this site is closed.', 'good');
+  } catch (e) {
+    alert(`Could not arm the autonomous engine: ${e.message}. It will still run once per click here.`, 'warn');
+  }
   await runEngine();
 }
-function pauseEngine() {
+async function pauseEngine() {
   state.running = false;
-  alert('Paused: Algohns will not create new paper orders until Play is pressed.', 'warn');
+  try { await api('/api/engine/state', { method: 'POST', body: JSON.stringify({ action: 'pause' }) }); } catch (_) {}
+  alert('Paused: Algohns will not create new paper orders until Play is pressed, on this device or autonomously.', 'warn');
   safeRender(state.page);
 }
 async function killSwitch() {
   state.running = false;
   state.killed = true;
   try {
-    const res = await api('/api/broker/alpaca/orders', { method: 'DELETE' });
-    alert(res.cancelled ? 'Kill Switch executed: open paper orders cancellation requested.' : 'Kill Switch sent, but cancellation status is uncertain.', res.cancelled ? 'good' : 'warn');
+    const res = await api('/api/engine/state', { method: 'POST', body: JSON.stringify({ action: 'kill' }) });
+    alert(res.error ? `Kill Switch local stop active: ${res.error}` : 'Kill Switch executed: autonomous engine stopped and open paper orders cancellation requested.', res.error ? 'warn' : 'good');
   } catch (e) {
     alert(`Kill Switch local stop active. Broker cancel failed: ${e.message}`, 'bad');
   }
   safeRender(state.page);
+}
+
+function engineConfigPayload() {
+  return {
+    strategy: state.config.strategy, dataFeed: state.config.dataFeed, universeAssetClass: state.config.universeAssetClass,
+    customSymbols: state.config.customSymbols, minPrice: state.config.minPrice, minDollarVolume: state.config.minDollarVolume,
+    maxOrders: state.config.maxOrders, paperOrderCap: state.config.paperOrderCap, exclusions: state.exclusions
+  };
+}
+
+async function syncEngineState(show = false) {
+  try {
+    const [engine, journalRes] = await Promise.all([api('/api/engine/state'), api('/api/engine/journal')]);
+    state.engine = engine;
+    state.running = !!engine.running;
+    state.killed = !!engine.killed;
+    if (Array.isArray(journalRes.journal) && journalRes.journal.length) {
+      const seen = new Set(state.journal.map(j => j.time + j.symbol + j.status));
+      const fresh = journalRes.journal.filter(j => !seen.has(j.time + j.symbol + j.status));
+      if (fresh.length) { state.journal = fresh.concat(state.journal).slice(0, 500); saveJournal(); }
+    }
+    if (show) alert(`Autonomous engine status: ${engine.lastRunNote || 'no run yet'}.`, 'good');
+    safeRender(state.page);
+  } catch (e) {
+    if (show) alert(`Could not read autonomous engine status: ${e.message}`, 'warn');
+  }
 }
 
 async function loadUniverse(show = true) {
@@ -467,6 +501,7 @@ function renderControl() {
         ${metric('Drawdown', pct(dd), 'from local equity curve', dd > -0.08 ? 'good' : dd > -0.15 ? 'warn-text' : 'bad')}
       </div>
     </div>
+    ${renderAutonomousEngineBox()}
     <div class="grid cols-2" style="margin-top:14px">
       <div class="panel"><div class="panel-h"><div><h2>Equity curve vs benchmark</h2><p class="muted small">Live Alpaca history above the fold. Benchmark appears after a backtest run.</p></div><span class="badge">${hist.length} points</span></div><div class="chart">${lineChart(hist, bench, 'Equity', 'Benchmark')}</div></div>
       <div class="panel"><div class="panel-h"><div><h2>Drawdown</h2><p class="muted small">Below-curve loss from previous peak.</p></div><span class="badge ${dd > -0.08 ? 'good' : 'warn'}">${pct(dd)}</span></div><div class="chart small">${drawdownChart(hist)}</div>${renderDecisionBox()}</div>
@@ -476,6 +511,17 @@ function renderControl() {
       <div class="panel"><h3>Next check</h3><p class="muted">Manual-first execution. Press Play for decision refresh; submit orders only from Orders & Control.</p><div class="badge">${state.running ? 'Play mode' : 'Paused'}</div></div>
       <div class="panel"><h3>Kill control</h3><p class="muted">Stops local algorithm state and requests cancellation of open Alpaca Paper orders.</p><button class="btn danger" onclick="killSwitch()">Kill Switch</button></div>
     </div>`;
+}
+
+function renderAutonomousEngineBox() {
+  const e = state.engine;
+  if (!e) return `<div class="panel" style="margin-top:14px"><h2>Autonomous engine (runs without this site open)</h2><p class="muted small">Checking Cloudflare Cron Trigger status…</p></div>`;
+  if (e.error) return `<div class="panel" style="margin-top:14px"><h2>Autonomous engine (runs without this site open)</h2><p class="muted small">${html(e.error)}. Create the Cloudflare KV namespace and bind it as ALGOHNS_KV in wrangler.toml to enable always-on execution.</p></div>`;
+  const badge = e.killed ? 'bad' : e.running ? 'good' : 'warn';
+  const label = e.killed ? 'Killed' : e.running ? 'Running on Cloudflare Cron' : 'Paused';
+  return `<div class="panel" style="margin-top:14px"><div class="panel-h"><div><h2>Autonomous engine (runs without this site open)</h2><p class="muted small">A Cloudflare Cron Trigger runs the same Strategy Engine on the edge every few minutes, even with no browser tab open.</p></div><span class="badge ${badge}">${label}</span></div>
+    <p class="small muted">Last run: ${e.lastRunAt ? timeShort(e.lastRunAt) : 'never'} (${html(e.lastRunSource || '—')}) — ${html(e.lastRunNote || 'no note')}</p>
+    <button class="btn ghost" onclick="syncEngineState(true)">Refresh autonomous status</button></div>`;
 }
 
 function renderDecisionBox() {
@@ -495,7 +541,8 @@ function renderStrategy() {
     </div>
     <div class="panel" style="margin-top:14px"><div class="panel-h"><div><h2>Rank table</h2><p class="muted small">Generated by the latest engine run.</p></div><button class="btn primary" onclick="runEngine()">Run Strategy Engine</button></div>${rankTable()}</div>`;
 }
-function setStrategy(k) { state.config.strategy = k; state.config.backtest.strategy = k; saveConfig(); state.backtest.stale = true; safeRender(state.page); }
+function setStrategy(k) { state.config.strategy = k; state.config.backtest.strategy = k; saveConfig(); state.backtest.stale = true; syncEngineConfig(); safeRender(state.page); }
+function syncEngineConfig() { api('/api/engine/state', { method: 'POST', body: JSON.stringify({ action: state.running ? 'play' : 'pause', config: engineConfigPayload() }) }).catch(() => {}); }
 function updateConfig(k, v) { state.config[k] = v; saveConfig(); }
 function markUniverseStale() { state.universe.loaded = false; state.backtest.stale = true; saveConfig(); }
 
@@ -556,7 +603,7 @@ function positionsTable(positions) {
 }
 async function exitPosition(symbol) { excludeSymbol(symbol, false); try { await api(`/api/broker/alpaca/position?symbol=${encodeURIComponent(symbol)}`, { method: 'DELETE' }); alert(`${symbol}: close position request sent to Alpaca Paper.`, 'good'); await syncAll(false); } catch (e) { alert(`${symbol}: close request failed: ${e.message}`, 'bad'); } safeRender('portfolio'); }
 async function reducePosition(symbol) { try { await api(`/api/broker/alpaca/position?symbol=${encodeURIComponent(symbol)}&percentage=50`, { method: 'DELETE' }); alert(`${symbol}: reduce 50% request sent to Alpaca Paper.`, 'good'); await syncAll(false); } catch (e) { alert(`${symbol}: reduce request failed: ${e.message}`, 'bad'); } safeRender('portfolio'); }
-function excludeSymbol(symbol, show = true) { if (!state.exclusions.includes(symbol)) state.exclusions.push(symbol); saveExclusions(); if (show) alert(`${symbol} excluded from future strategy buys.`, 'warn'); }
+function excludeSymbol(symbol, show = true) { if (!state.exclusions.includes(symbol)) state.exclusions.push(symbol); saveExclusions(); syncEngineConfig(); if (show) alert(`${symbol} excluded from future strategy buys.`, 'warn'); }
 
 function renderOrders() {
   $('#app').innerHTML = `
@@ -820,4 +867,4 @@ function chunks(a,n){const out=[];for(let i=0;i<a.length;i+=n)out.push(a.slice(i
 function unique(a){return Array.from(new Set(a.filter(Boolean)));}
 function monthsAgo(n){const d=new Date();d.setMonth(d.getMonth()-n);return d.toISOString().slice(0,10);}function isoDaysAgo(n){const d=new Date(Date.now()-n*86400000);return d.toISOString().slice(0,10);}function todayISO(){return new Date().toISOString().slice(0,10);}function timeShort(ts){try{return new Date(ts).toLocaleString([],{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'});}catch(_){return ts;}}function timeNow(){return new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
 
-Object.assign(window, { setPage, runEngine, loadUniverse, syncAll, testConnection, checkBuild, playEngine, pauseEngine, killSwitch, setStrategy, updateConfig, markUniverseStale, submitPreviewOrders, exitPosition, reducePosition, excludeSymbol, loadBacktestData, runBacktest, applyBacktestControls, loadNews, exportSnapshotHTML, exportTradeLogCSV, exportStrategyJSON, exportBacktestReport, state });
+Object.assign(window, { setPage, runEngine, loadUniverse, syncAll, testConnection, checkBuild, playEngine, pauseEngine, killSwitch, setStrategy, updateConfig, markUniverseStale, submitPreviewOrders, exitPosition, reducePosition, excludeSymbol, loadBacktestData, runBacktest, applyBacktestControls, loadNews, exportSnapshotHTML, exportTradeLogCSV, exportStrategyJSON, exportBacktestReport, syncEngineState, state });
