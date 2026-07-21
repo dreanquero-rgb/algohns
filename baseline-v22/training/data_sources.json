@@ -1,0 +1,38 @@
+{
+  "version": "v21-multisource-data-intelligence",
+  "match_result_backbone": [
+    {
+      "name": "Jeff Sackmann tennis_atp",
+      "type": "public_git_csv",
+      "role": "canonical ATP match results, rankings at match date, match stats",
+      "overlap_policy": "master_result_source"
+    }
+  ],
+  "enrichment_sources": [
+    {
+      "name": "Tennis-Data.co.uk",
+      "type": "csv_xlsx_or_best_effort_download",
+      "role": "historical fixed odds",
+      "overlap_policy": "merge_by_match_key_only"
+    },
+    {
+      "name": "Jeff Sackmann Match Charting Project",
+      "type": "public_git_csv_optional",
+      "role": "point-by-point and shot-charted stats for covered matches",
+      "overlap_policy": "merge_by_match_key_only",
+      "license_note": "CC BY-NC-SA 4.0; non-commercial unless licensed separately"
+    },
+    {
+      "name": "Local legal CSV/API exports",
+      "type": "user_provided",
+      "role": "UTS, Tennis Abstract, paid feeds, API-Tennis historical export, Kaggle exports, injury/news flags",
+      "overlap_policy": "merge_by_match_key_only"
+    }
+  ],
+  "dedupe_key": "sha1(date|tournament|round|sorted_player_names)",
+  "outputs": [
+    "training/data/canonical_matches.csv",
+    "training/data/data_lineage.json",
+    "UPLOAD_THIS_TO_CLOUDFLARE/model.json"
+  ]
+}

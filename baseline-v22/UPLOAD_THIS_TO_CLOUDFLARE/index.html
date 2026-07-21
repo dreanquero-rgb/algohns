@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TennisForest GreenCode v22</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="grid-bg"></div>
+  <div class="tennis-decor decor-ball decor-ball-1">●</div>
+  <div class="tennis-decor decor-ball decor-ball-2">●</div>
+  <div class="tennis-decor decor-racket decor-racket-1">🎾</div>
+  <div class="tennis-decor decor-racket decor-racket-2">🏸</div>
+
+  <header class="hero">
+    <div class="brand">
+      <div class="ball" aria-hidden="true"></div>
+      <div>
+        <div class="eyebrow">ATP predictions · value betting · real tracking</div>
+        <h1>TennisForest GreenCode</h1>
+        <p>Partite ATP reali, probabilità modello, quote bookmaker e decisione BET/NO BET solo quando il margine è solido.</p>
+      </div>
+    </div>
+    <div class="status-pill" id="statusPill">Connessione...</div>
+  </header>
+
+  <main>
+    <section class="panel controls priority-panel">
+      <div>
+        <h2>Partite di oggi e prossimi match ATP</h2>
+        <p>Prima le opportunità operative: il sistema mostra tutte le partite reali e separa chiaramente BET da NO BET.</p>
+      </div>
+      <div class="buttons">
+        <button id="refreshBtn">Aggiorna match</button>
+        <button id="settleBtn" class="ghost">Aggiorna risultati</button>
+        <button id="trackingCheckBtn" class="ghost">Test salvataggio</button>
+        <button id="cleanupBtn" class="ghost admin-only">Pulisci demo vecchie</button>
+      </div>
+    </section>
+
+    <section class="panel recommendations-panel first-section">
+      <div class="section-head">
+        <div>
+          <h2>BET recommendations</h2>
+          <p class="muted">Qui compaiono solo pick con modello attivo, quota valida, edge positivo, margine bookmaker accettabile e qualità dati sufficiente.</p>
+        </div>
+        <span id="betRule">edge ≥ 5%, conf ≥ 60%</span>
+      </div>
+      <div id="recommendations" class="recommendations"></div>
+    </section>
+
+    <section class="panel matches-panel">
+      <div class="section-head">
+        <h2>Future matches</h2>
+        <span id="lastUpdate">—</span>
+      </div>
+      <div id="matches" class="matches"></div>
+    </section>
+
+
+    <section class="panel tracking-panel">
+      <div class="section-head">
+        <div>
+          <h2>Registro live previsioni</h2>
+          <p class="muted">Ogni previsione futura viene salvata una sola volta. I refresh successivi non cambiano la previsione originale: aggiornano solo l'ultimo snapshot.</p>
+        </div>
+        <span id="trackingStatus">tracking in controllo...</span>
+      </div>
+      <div class="backtest-grid tracking-grid">
+        <article><span>Salvate ora</span><strong id="trackingSaved">—</strong></article>
+        <article><span>Aggiornate ora</span><strong id="trackingUpdated">—</strong></article>
+        <article><span>Errori save</span><strong id="trackingErrors">—</strong></article>
+        <article><span>Registro totale</span><strong id="trackingTotal">—</strong></article>
+        <article><span>BET salvati</span><strong id="trackingBets">—</strong></article>
+        <article><span>Ultimo errore</span><strong id="trackingLastError">—</strong></article>
+      </div>
+    </section>
+
+    <section class="panel diagnosis-panel">
+      <div class="section-head">
+        <div>
+          <h2>Diagnosi modello</h2>
+          <p class="muted">Serve a capire perché il modello sbaglia: non basta accuracy, bisogna controllare pesi, calibrazione e dati recenti.</p>
+        </div>
+        <span id="diagnosisStatus">in attesa</span>
+      </div>
+      <div id="diagnosisList" class="diagnosis-list"></div>
+    </section>
+
+    <section class="grid stats-grid performance-strip">
+      <article class="card stat"><span>Previsioni salvate</span><strong id="totalPredictions">—</strong></article>
+      <article class="card stat"><span>Prese / Sbagliate</span><strong id="record">—</strong></article>
+      <article class="card stat"><span>Accuracy reale</span><strong id="accuracy">—</strong></article>
+      <article class="card stat"><span>Profitto reale</span><strong id="profit">—</strong></article>
+    </section>
+
+    <section class="grid stats-grid secondary compact-kpis">
+      <article class="card stat small"><span>Pending</span><strong id="pendingPredictions">—</strong></article>
+      <article class="card stat small"><span>Settled con quote</span><strong id="withOdds">—</strong></article>
+      <article class="card stat small"><span>Stake simulato</span><strong id="totalStake">—</strong></article>
+      <article class="card stat small"><span>ROI reale</span><strong id="roi">—</strong></article>
+    </section>
+
+    <section class="panel two-col product-charts">
+      <div>
+        <h2>Esito previsioni</h2>
+        <p class="muted">Conta solo quando il match è davvero finito e settlato.</p>
+        <div id="resultChart" class="result-chart"></div>
+      </div>
+      <div>
+        <h2>Profitto cumulato</h2>
+        <p class="muted">Simulazione flat stake sulle previsioni con quota reale disponibile.</p>
+        <canvas id="bankrollChart" height="210"></canvas>
+      </div>
+    </section>
+
+    <section class="panel registry-panel">
+      <div class="section-head">
+        <h2>Registro previsioni</h2>
+        <span>previsione originale salvata, risultato aggiornato solo a match concluso</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Data</th><th>Torneo</th><th>Match</th><th>Pick</th><th>Conf.</th><th>Quota</th><th>EV 100€</th><th>Stato</th><th>Risultato</th><th>P/L</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel model-panel product-status">
+      <div class="section-head">
+        <div>
+          <h2>Stato modello</h2>
+          <p class="muted">Sintesi prodotto: se il modello non è attivo, il sito non consiglia puntate.</p>
+        </div>
+        <span id="modelStatus">controllo modello...</span>
+      </div>
+      <div class="backtest-grid model-summary-grid">
+        <article><span>Versione</span><strong id="modelType">—</strong></article>
+        <article><span>Training rows</span><strong id="modelTrainRows">—</strong></article>
+        <article><span>Test accuracy</span><strong id="modelAccuracy">—</strong></article>
+        <article><span>Log loss</span><strong id="modelLogLoss">—</strong></article>
+        <article><span>Players</span><strong id="modelPlayers">—</strong></article>
+        <article><span>Trained through</span><strong id="modelDate">—</strong></article>
+      </div>
+    </section>
+
+    <section class="panel validation-panel product-validation">
+      <div class="section-head">
+        <div>
+          <h2>Controllo qualità strategia</h2>
+          <p class="muted">Confronto essenziale tra modello, favorito bookmaker e strategia value. Serve a capire se il sistema sta misurando bene.</p>
+        </div>
+        <span id="validationVerdict">in attesa</span>
+      </div>
+      <div class="backtest-grid">
+        <article><span>Model ROI</span><strong id="valModelRoi">—</strong></article>
+        <article><span>Book ROI</span><strong id="valBookRoi">—</strong></article>
+        <article><span>Value ROI</span><strong id="valValueRoi">—</strong></article>
+        <article><span>Auto ROI</span><strong id="valAutoRoi">—</strong></article>
+        <article><span>Inverted ROI</span><strong id="valInvRoi">—</strong></article>
+        <article><span>Odds mapping</span><strong id="valOddsMap">—</strong></article>
+      </div>
+    </section>
+
+    <section class="panel odds-panel quiet-panel">
+      <div class="section-head">
+        <h2>Quote disponibili</h2>
+        <span id="oddsStatus">quote: controllo...</span>
+      </div>
+      <div class="odds-summary">
+        <div><span>Match con quote</span><strong id="oddsWith">—</strong></div>
+        <div><span>Match totali</span><strong id="oddsTotal">—</strong></div>
+        <div><span>Fonte quote</span><strong id="oddsSource">—</strong></div>
+        <div><span>Stato quote</span><strong id="oddsState">—</strong></div>
+      </div>
+      <p class="muted" id="oddsExplanation">Il sistema usa solo quote reali e non inserisce valori finti.</p>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Calibration</h2>
+        <span>confidence modello vs risultati reali</span>
+      </div>
+      <div id="calibration" class="calibration"></div>
+    </section>
+
+    <section class="panel backtest-panel backtest-bottom hidden-backtest">
+      <div class="section-head">
+        <div>
+          <h2>Backtest & strategy</h2>
+          <p class="muted">Sezione di controllo in fondo: utile per valutare ROI e robustezza, non per confondere il fruitore prima delle partite.</p>
+        </div>
+        <span id="backtestRange">in attesa</span>
+      </div>
+      <div class="backtest-grid">
+        <article><span>Match testati</span><strong id="btTotal">—</strong></article>
+        <article><span>Prese / Sbagliate</span><strong id="btRecord">—</strong></article>
+        <article><span>Accuracy</span><strong id="btAccuracy">—</strong></article>
+        <article><span>ROI 100€/pick</span><strong id="btRoi">—</strong></article>
+        <article><span>Filtro</span><strong id="btFilter">—</strong></article>
+        <article><span>Quote storiche</span><strong id="btOdds">—</strong></article>
+      </div>
+      <p class="quality-note" id="btQuality">Backtest strict: niente fallback automatico e niente partite demo.</p>
+      <div class="strategy-box">
+        <div>
+          <h3>Value strategy</h3>
+          <p class="muted">Strategia base v21: edge ≥ 5%, confidence ≥ 60%, qualità dati almeno media, quote pulite.</p>
+        </div>
+        <div class="strategy-grid">
+          <article><span>Value bets</span><strong id="btValueBets">—</strong></article>
+          <article><span>Value record</span><strong id="btValueRecord">—</strong></article>
+          <article><span>Value ROI</span><strong id="btValueRoi">—</strong></article>
+          <article><span>Value P/L</span><strong id="btValueProfit">—</strong></article>
+        </div>
+        <div class="strategy-grid optimized">
+          <article><span>Auto bets</span><strong id="btAutoBets">—</strong></article>
+          <article><span>Auto ROI</span><strong id="btAutoRoi">—</strong></article>
+          <article><span>Auto P/L</span><strong id="btAutoProfit">—</strong></article>
+          <article><span>Regola auto</span><strong id="btAutoRule">—</strong></article>
+        </div>
+      </div>
+      <div class="two-col compact">
+        <div>
+          <h3>Esito backtest</h3>
+          <div id="btResultChart" class="result-chart"></div>
+        </div>
+        <div>
+          <h3>Profitto cumulato backtest</h3>
+          <canvas id="btBankrollChart" height="190"></canvas>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Data</th><th>Torneo</th><th>Match</th><th>Pick</th><th>Book fav</th><th>Vincitore</th><th>Conf.</th><th>Edge</th><th>Quota</th><th>P/L</th>
+            </tr>
+          </thead>
+          <tbody id="backtestBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>TennisForest GreenCode v22 · real only · no demo matches</span>
+    <span>ATP · model vs bookmaker · value discipline</span>
+  </footer>
+  <script src="/app.js"></script>
+</body>
+</html>
