@@ -1,0 +1,45 @@
+# =============================================================================
+# Algohns V12 — Quant Asset Manager OS (Python edition)
+# Install:  pip install -r requirements.txt
+# Heavy/optional extras are grouped per module; the platform boots without them
+# and each page tells you what to install to unlock a feature.
+# =============================================================================
+
+# --- Core platform & dashboard ----------------------------------------------
+streamlit>=1.36            # multipage dashboard (st.navigation API)
+pandas>=2.0
+numpy>=1.24
+scipy>=1.11                # precise yield root-finding (brentq)
+python-dotenv>=1.0
+requests>=2.31
+pyarrow>=14.0              # parquet disk cache for market data
+
+# --- Market data -------------------------------------------------------------
+yfinance>=0.2.40           # prices & fundamentals
+
+# --- Module 1: European Bond Yield & Multi-Tax Engine ------------------------
+QuantLib>=1.33             # independent cross-check of YTM/duration/convexity
+#  (pure-python engine works without it)
+
+# --- Module 2: Alpaca Asynchronous Auto-Trading ------------------------------
+alpaca-py>=0.21            # official Alpaca SDK (paper trading)
+celery[redis]>=5.3         # async task queue for background execution
+redis>=5.0                 # broker/result backend
+APScheduler>=3.10          # broker-less scheduler fallback
+
+# --- Module 3: Backtesting & Portfolio Optimization --------------------------
+PyPortfolioOpt>=1.5.5      # Max Sharpe / Min-Var / Black-Litterman
+cvxpy>=1.4                 # convex solver used by PyPortfolioOpt
+ffn>=1.0                   # extended performance stats (optional cross-check)
+# vectorbt>=0.26           # optional: vectorised backtesting (heavy; enable if needed)
+# backtrader>=1.9          # optional: event-driven engine
+
+# --- Module 4: S&P 500 Supply Chain Graph ------------------------------------
+sec-edgar-downloader>=5.0  # download 10-K / 10-Q filings
+spacy>=3.7                 # Named-Entity Recognition (ORG extraction)
+#  after install:  python -m spacy download en_core_web_sm
+networkx>=3.2              # directed supply-chain graph
+pyvis>=0.3.2               # interactive HTML graph visualisation
+
+# --- Module 5: Consolidated SEC Financial Statements -------------------------
+#  Uses only `requests` + `pandas` against data.sec.gov XBRL company facts.

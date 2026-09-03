@@ -1,5 +1,24 @@
+# --- Node / Cloudflare (legacy V11) ---
 node_modules/
 .wrangler/
 .dev.vars
 *.log
 .DS_Store
+
+# --- Python (V12) ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# --- Runtime data / caches ---
+algohns/data/cache/
+algohns/data/edgar/
+*.parquet
+supply_chain*.html

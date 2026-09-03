@@ -1,0 +1,29 @@
+# Algohns V12 — full stack: dashboard + Redis + Celery worker & beat.
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  dashboard:
+    build: .
+    ports: ["8501:8501"]
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on: [redis]
+
+  worker:
+    build: .
+    command: celery -A algohns.workers.celery_app.app worker --loglevel=info
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on: [redis]
+
+  beat:
+    build: .
+    command: celery -A algohns.workers.celery_app.app beat --loglevel=info
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on: [redis]
