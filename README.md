@@ -1,87 +1,99 @@
-# Algohns V11 — Alpaca Paper Quant Asset Manager OS
+# Algohns V12 — Quant Asset Manager OS (Python)
 
-Algohns V11 is a clean, professional, Alpaca Paper-only base for a Quant Asset Manager OS. It is built as a Cloudflare Worker plus a static vanilla JavaScript frontend. No React, no Vue, no complex build step.
+Algohns V12 is a modular **quant asset-management platform** that glues
+best-in-class open-source financial libraries into a single, high-performance
+**Streamlit** dashboard. It is the Python successor to the Algohns V11 Cloudflare
+Worker, extending it from Alpaca paper-trading into a five-module quant OS.
 
-## What this version does
+> **Paper trading only.** Real-money execution is locked platform-wide, exactly
+> as in V11. The Alpaca engine refuses to construct a non-paper client.
 
-- Control Center with sticky Play / Pause / Kill Switch
-- Alpaca Paper connection layer
-- Universe Explorer from Alpaca active tradable assets
-- Transparent included/excluded asset reasons
-- Strategy Engine with Defensive, Balanced, Advanced and Aggressive profiles
-- Regime Engine with voting details
-- Portfolio cockpit with allocation treemap and position actions
-- Orders & Control with paper order preview and execution journal
-- Backtest Lab with mandatory Load Backtest Data before Run Backtest
-- Risk Center with drawdown, VaR, CVaR, volatility, beta proxy, concentration and stress tests
-- News Intelligence using Alpaca news when available
-- Export snapshot HTML, trade log CSV, strategy JSON and backtest report
-- Real-money execution locked in both UI and worker
+---
 
-## Required secrets
+## The five modules
 
-Cloudflare Worker secrets:
+| # | Module | File | What it does |
+|---|--------|------|--------------|
+| 1 | **European Bond Yield & Multi-Tax Engine** | `algohns/modules/bond_engine.py` | Net YTM (TIR/XIRR), accrued interest, Macaulay/Modified Duration, Convexity + dynamic taxation (IT 12.5% white-list vs 26% corporate, *disaggio d'emissione*, *minusvalenze*). QuantLib cross-check. |
+| 2 | **Alpaca Asynchronous Engine** | `algohns/modules/alpaca_execution.py` + `algohns/workers/` | Paper order execution, portfolio sync, rebalancing; background workers via Celery/Redis or APScheduler (runs with the browser closed). |
+| 3 | **Backtesting & Portfolio Optimization** | `algohns/modules/backtest_suite.py` | Max Sharpe / Min-Variance / Risk Parity / Black-Litterman (PyPortfolioOpt) + full risk metrics (Sharpe, Sortino, Calmar, Max Drawdown, Alpha, Beta, VaR/CVaR). |
+| 4 | **S&P 500 Supply Chain Graph** | `algohns/modules/supply_chain_graph.py` | Mines 10-K/10-Q filings (sec-edgar-downloader / EDGAR API), extracts supplier–customer links (spaCy + RegEx), builds a directed graph (NetworkX) with contagion metrics and an interactive PyVis view. |
+| 5 | **Consolidated SEC Financial Statements** | `algohns/modules/sec_aggregator.py` | Pulls XBRL company facts from `data.sec.gov`, normalises Income Statement / Balance Sheet / Cash Flow, compares tickers side-by-side with key ratios. |
 
-```txt
-ALPACA_API_KEY
-ALPACA_SECRET_KEY
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full **repository map**
+(which upstream repos feed each module) and design rationale.
+
+---
+
+## Quick start
+
+```bash
+# 1. Install
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm      # for Module 4 NER (optional)
+
+# 2. Configure
+cp .env.example .env                          # add Alpaca paper keys, SEC user-agent
+
+# 3. Run the dashboard
+streamlit run app.py
 ```
 
-The project also sets:
+Open http://localhost:8501.
 
-```txt
-ALPACA_BASE_URL=https://paper-api.alpaca.markets
-ALPACA_DATA_BASE_URL=https://data.alpaca.markets
+### Background auto-trading (Module 2)
+
+```bash
+# Production: Celery + Redis
+celery -A algohns.workers.celery_app.app worker --loglevel=info
+celery -A algohns.workers.celery_app.app beat   --loglevel=info
+
+# Laptop: no broker required
+python -c "from algohns.workers.tasks import InlineScheduler; s=InlineScheduler(); s.start()"
 ```
 
-The worker refuses non-paper Alpaca execution.
+### Docker (full stack)
 
-## Deploy target
-
-Worker name:
-
-```txt
-algohns
+```bash
+docker compose up --build        # dashboard + redis + worker + beat
 ```
 
-Expected URL:
+---
 
-```txt
-https://algohns.dreanquero.workers.dev
-```
+## Configuration
 
-## One-click Windows flow
+All settings come from environment variables / `.env` (never hard-coded):
 
-1. Extract the zip into a fresh folder.
-2. Double-click `START_HERE.bat`.
-3. Insert Alpaca Paper keys when asked, or keep existing saved keys.
-4. Open the deployed URL.
-5. Press `CTRL + F5`.
-6. Go to Settings / Connections and run Live build check.
+| Variable | Purpose |
+|---|---|
+| `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` | Alpaca **paper** credentials (Module 2) |
+| `ALPACA_PAPER` | Must stay `true` (real-money is locked) |
+| `REDIS_URL` | Celery broker/backend (Module 2) |
+| `SEC_USER_AGENT` | `Name email@example.com` — required by SEC EDGAR (Modules 4 & 5) |
+| `DEFAULT_TAX_RESIDENCE` | Default tax profile (Module 1) |
 
-## Files
+---
 
-```txt
-_worker.js
-package.json
-wrangler.toml
-public/index.html
-public/assets/app.js
-public/assets/styles.css
-public/assets/algohns-mark.svg
-START_HERE.bat
-DEPLOY.bat
-CONFIGURA_CHIAVI.bat
-SETUP_ALGOHNS.ps1
-QUICK_START_AUTOMATICO.md
-QUICK_START_ALPACA.md
-```
+## Graceful degradation
 
-## QA performed before packaging
+Every heavy dependency (QuantLib, alpaca-py, PyPortfolioOpt, spaCy, Celery,
+pyvis…) is imported lazily. If one is missing the platform still boots and the
+relevant page shows an actionable `pip install …` hint — you can run any subset
+of modules.
 
-```txt
-node --check _worker.js
-node --check public/assets/app.js
-```
+---
 
-Also checked: clean V11 branding, Alpaca Paper-only UI, stable navigation and real-money lock.
+## Legacy: Algohns V11 (Cloudflare Worker)
+
+The original vanilla-JS Cloudflare Worker (`_worker.js`, `public/`,
+`wrangler.toml`, the `*.bat` / `*.ps1` helpers) is preserved at the repo root for
+reference. It is independent of the V12 Python platform.
+
+---
+
+## Disclaimer
+
+For research and paper-trading only. Tax rates are indicative and configurable;
+verify against current legislation and your own fiscal advisor. Not investment
+advice.

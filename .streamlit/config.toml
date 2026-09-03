@@ -1,0 +1,16 @@
+# Algohns V12 — Streamlit theme (matches the V11 gold / cyan / midnight brand).
+[theme]
+base = "dark"
+primaryColor = "#E2B86B"
+backgroundColor = "#070B13"
+secondaryBackgroundColor = "#0F172A"
+textColor = "#F8FAFC"
+font = "sans serif"
+
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false
