@@ -336,11 +336,15 @@ class BondEngine:
             qbond = ql.FixedRateBond(
                 2, bond.face_value, schedule, [bond.coupon_rate], ql.ActualActual(ql.ActualActual.ISDA)
             )
-            ytm = qbond.bondYield(
-                bond.clean_price, ql.ActualActual(ql.ActualActual.ISDA),
-                ql.Compounded, ql.Annual,
-            )
-            rate = ql.InterestRate(ytm, ql.ActualActual(ql.ActualActual.ISDA), ql.Compounded, ql.Annual)
+            day_counter = ql.ActualActual(ql.ActualActual.ISDA)
+            # QuantLib >= 1.43 expects a BondPrice wrapper; older versions take
+            # a raw clean price. Try the modern signature first, then fall back.
+            try:
+                price = ql.BondPrice(bond.clean_price, ql.BondPrice.Clean)
+                ytm = qbond.bondYield(price, day_counter, ql.Compounded, ql.Annual)
+            except Exception:  # noqa: BLE001
+                ytm = qbond.bondYield(bond.clean_price, day_counter, ql.Compounded, ql.Annual)
+            rate = ql.InterestRate(ytm, day_counter, ql.Compounded, ql.Annual)
             return {
                 "quantlib_ytm": round(ytm, 6),
                 "quantlib_accrued": round(qbond.accruedAmount(), 4),

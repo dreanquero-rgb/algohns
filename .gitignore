@@ -22,3 +22,6 @@ algohns/data/cache/
 algohns/data/edgar/
 *.parquet
 supply_chain*.html
+
+# pyvis vendored assets (written next to generated graph HTML)
+lib/

@@ -205,9 +205,16 @@ class PortfolioOptimizer:
 
     @staticmethod
     def _clean(weights: dict) -> dict[str, float]:
-        cleaned = {k: round(float(v), 6) for k, v in weights.items() if abs(float(v)) > 1e-6}
+        cleaned = {k: float(v) for k, v in weights.items() if abs(float(v)) > 1e-6}
         total = sum(cleaned.values()) or 1.0
-        return {k: round(v / total, 6) for k, v in cleaned.items()}
+        normed = {k: round(v / total, 6) for k, v in cleaned.items()}
+        # Absorb the rounding residual into the largest weight so the
+        # allocation sums to exactly 1.0 (avoids drift in rebalancing).
+        residual = round(1.0 - sum(normed.values()), 6)
+        if normed and residual:
+            kmax = max(normed, key=normed.get)
+            normed[kmax] = round(normed[kmax] + residual, 6)
+        return normed
 
     # --------------------------------------------------------------- report
     def expected_performance(self, weights: dict[str, float]) -> dict[str, float]:
