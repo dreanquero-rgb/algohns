@@ -71,6 +71,20 @@ def test_metrics_and_backtest():
     assert res.summary()["final_equity"] > 0
 
 
+# ----------------------------------------------------------------- M1 screener
+def test_bond_screener_sample_universe():
+    from algohns.modules.bond_data import BondScreener
+
+    sc = BondScreener()
+    bonds, source = sc.load_universe()          # network blocked in CI -> sample
+    assert bonds and source in ("live", "sample")
+    df = sc.build_table(bonds, tax_key="IT_GOV_WHITELIST")
+    assert not df.empty and {"ISIN", "NetYTM%", "YTM%", "ModDur"} <= set(df.columns)
+    taxed = df.dropna(subset=["YTM%", "NetYTM%"])
+    assert len(taxed) >= 5
+    assert (taxed["NetYTM%"] <= taxed["YTM%"] + 1e-9).all()   # net never exceeds gross
+
+
 # --------------------------------------------------------------------------- M2
 def test_real_money_lock(monkeypatch):
     monkeypatch.setenv("ALPACA_PAPER", "false")

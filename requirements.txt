@@ -20,6 +20,9 @@ yfinance>=0.2.40           # prices & fundamentals
 # --- Module 1: European Bond Yield & Multi-Tax Engine ------------------------
 QuantLib>=1.33             # independent cross-check of YTM/duration/convexity
 #  (pure-python engine works without it)
+beautifulsoup4>=4.12       # parse Borsa Italiana MOT/EuroMOT list pages
+lxml>=5.0                  # fast HTML parser backend for the screener
+borsa-italiana-scraping>=0.2  # optional: richer per-bond detail (ottieni_scheda)
 
 # --- Module 2: Alpaca Asynchronous Auto-Trading ------------------------------
 alpaca-py>=0.21            # official Alpaca SDK (paper trading)
