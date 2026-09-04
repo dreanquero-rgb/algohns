@@ -30,16 +30,22 @@ recommended setup is:
    Streamlit exposes these as environment variables, which `algohns/config/settings.py` reads.
 5. **Deploy.** You get a URL like `https://algohns.streamlit.app`.
 
-### Notes on resources
-- Streamlit Community Cloud has ~1 GB RAM. Every heavy dependency in Algohns is
-  imported *lazily*, so the app boots fine; if the build hits a resource/time
-  limit, trim optional extras from `requirements.txt` — the platform degrades
-  gracefully and each page shows what to reinstall:
-  - `celery[redis]`, `redis` — background workers don't run on Streamlit Cloud
-    anyway (use APScheduler locally, or a Docker host — see Part 3).
-  - `QuantLib` — only the bond cross-check; the pure-python engine still works.
-  - `spacy` — Module 4 falls back to RegEx-only extraction.
-- For spaCy NER on Cloud, uncomment the `en_core_web_sm` line in `requirements.txt`.
+### Requirements: lean vs full
+- **`requirements.txt` is the LEAN, Cloud-safe set** — it installs cleanly on the
+  ~1 GB Community Cloud builder (verified: no compilation, all wheels). This is
+  what Streamlit Cloud installs automatically. The platform boots fully on it;
+  every heavy feature degrades gracefully and each page shows what to add.
+- **`requirements-full.txt` enables every feature** (local / Docker): it adds the
+  build-fragile or heavy extras deliberately kept off Cloud:
+  - `QuantLib` — bond cross-check (pure-python engine works without it).
+  - `PyPortfolioOpt` + `cvxpy` — convex optimizers (a NumPy optimizer fallback is
+    built in, so Max-Sharpe/Min-Var/Risk-Parity still work on Cloud).
+  - `spaCy` — Module 4 NER (RegEx extraction works without it).
+  - `celery[redis]`, `redis`, `APScheduler` — background workers (not runnable on
+    Streamlit Cloud anyway; use Docker — see Part 3).
+  - `ffn` — extended performance stats cross-check.
+- `borsa-italiana-scraping` is GPL-3.0 and **not on PyPI**; Module 1 uses a
+  built-in requests+BeautifulSoup scraper instead, so it is not required.
 
 ---
 
