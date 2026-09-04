@@ -97,6 +97,21 @@ def test_real_money_lock(monkeypatch):
     settings_mod.get_settings.cache_clear()
 
 
+# ------------------------------------------------------------- M2 risk profile
+def test_risk_profile_scoring_and_allocation():
+    from algohns.modules.risk_profile import QUESTIONS, compute_profile
+
+    cons = compute_profile({q.key: 0 for q in QUESTIONS})
+    aggr = compute_profile({q.key: 4 for q in QUESTIONS})
+    assert cons.label == "Conservative" and aggr.label == "Aggressive"
+    assert cons.score == 0.0 and aggr.score == 100.0
+    for p in (cons, aggr):
+        assert abs(sum(p.ticker_allocation.values()) - 1.0) < 1e-6
+    tilt = compute_profile({q.key: 2 for q in QUESTIONS}, preferences=["gold"])
+    assert "GLD" in tilt.ticker_allocation
+    assert abs(sum(tilt.ticker_allocation.values()) - 1.0) < 1e-6
+
+
 # --------------------------------------------------------------------------- M4
 def test_supply_chain_regex_extraction():
     from algohns.modules.supply_chain_graph import SupplyChainAnalyzer

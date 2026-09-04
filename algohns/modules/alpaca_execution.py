@@ -81,17 +81,38 @@ class AlpacaExecutionEngine:
         return _to_dict(acct)
 
     def is_paper_account(self) -> bool:
-        """Verify with the API that we are truly on a paper account."""
+        """Verify connectivity to the paper endpoint (client forces paper=True)."""
         try:
-            acct = self.account()
-            # Paper accounts carry a fabricated / non-fundable flag set.
-            return True  # client was constructed with paper=True; endpoint enforced
+            self.account()
+            return True
         except Exception:  # noqa: BLE001
             return False
+
+    def clock(self) -> dict[str, Any]:
+        """Market clock (open/closed, next open/close)."""
+        try:
+            return _to_dict(self.client.get_clock())
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc)}
 
     # ----------------------------------------------------------- positions
     def positions(self) -> list[dict[str, Any]]:
         return [_to_dict(p) for p in self.client.get_all_positions()]
+
+    def list_orders(self, status: str = "all", limit: int = 50) -> list[dict[str, Any]]:
+        """Recent orders (execution journal)."""
+        requests = require(_requests)
+        enums = require(_enums)
+        try:
+            status_enum = {
+                "all": enums.QueryOrderStatus.ALL,
+                "open": enums.QueryOrderStatus.OPEN,
+                "closed": enums.QueryOrderStatus.CLOSED,
+            }.get(status, enums.QueryOrderStatus.ALL)
+            req = requests.GetOrdersRequest(status=status_enum, limit=limit)
+            return [_to_dict(o) for o in self.client.get_orders(req)]
+        except Exception as exc:  # noqa: BLE001
+            return [{"error": str(exc)}]
 
     def portfolio_snapshot(self) -> dict[str, Any]:
         """A compact, display-friendly portfolio view."""
