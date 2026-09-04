@@ -3,7 +3,7 @@
  *
  * The V12 platform is a Python / Streamlit application and cannot run inside a
  * Cloudflare Worker (Workers execute JS/WASM in a V8 isolate; Streamlit needs a
- * long-lived Python server). This Worker keeps the `algohns.workers.dev` domain
+ * long-lived Python server). This Worker keeps the `algohns.dreanquero.workers.dev` domain
  * and forwards every request to the live Streamlit app configured in `APP_URL`
  * (see wrangler.toml [vars], or set it as a secret with `wrangler secret put`).
  *

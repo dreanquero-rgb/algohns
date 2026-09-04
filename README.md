@@ -62,7 +62,7 @@ docker compose up --build        # dashboard + redis + worker + beat
 ### Deploy (Streamlit Cloud + Cloudflare redirect)
 
 The dashboard runs on **Streamlit Community Cloud** (or any Python host); the
-Cloudflare Worker at `algohns.workers.dev` redirects to it via the `APP_URL`
+Cloudflare Worker at `algohns.dreanquero.workers.dev` redirects to it via the `APP_URL`
 var. Full step-by-step in [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ---
@@ -94,7 +94,7 @@ of modules.
 
 The V11 vanilla-JS application is preserved at `legacy/_worker_v11.js` (with the
 `public/` assets and the `*.bat` / `*.ps1` helpers at the repo root). The active
-`_worker.js` is now a thin **redirect Worker** that forwards `algohns.workers.dev`
+`_worker.js` is now a thin **redirect Worker** that forwards `algohns.dreanquero.workers.dev`
 to the live Streamlit app — see [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ---

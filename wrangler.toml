@@ -6,7 +6,7 @@ workers_dev = true
 [observability]
 enabled = true
 
-# The Worker now redirects algohns.workers.dev to the live Streamlit app.
+# The Worker now redirects algohns.dreanquero.workers.dev to the live Streamlit app.
 # 1. Deploy the Python platform on Streamlit Community Cloud (see docs/DEPLOY.md).
 # 2. Put the resulting URL here (or as a secret: `wrangler secret put APP_URL`).
 # 3. Run `wrangler deploy`.
