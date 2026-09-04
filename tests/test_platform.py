@@ -151,3 +151,15 @@ def test_sec_statement_and_ratios():
     ratios = agg.key_ratios(facts)
     assert ratios["Net Margin"] == round(90e9 / 500e9, 4)
     assert ratios["ROE"] == round(90e9 / 150e9, 4)
+
+
+def test_sec_full_statements_and_kpis():
+    from algohns.modules.sec_aggregator import SECAggregator, sample_facts
+
+    agg = SECAggregator()
+    facts = sample_facts("AAPL")
+    inc = agg.full_statement(facts, "income_statement", years=5)
+    assert inc.shape[1] == 5 and inc.shape[0] >= 10          # multi-year, full lines
+    kpis = agg.kpis(facts)
+    assert kpis["Revenue"]["value"] == 391035
+    assert kpis["Revenue"]["yoy"] is not None                # YoY computed
