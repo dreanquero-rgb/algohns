@@ -97,6 +97,18 @@ def test_real_money_lock(monkeypatch):
     settings_mod.get_settings.cache_clear()
 
 
+# ------------------------------------------------------------ M3 universe
+def test_universe_search():
+    from algohns.modules import universe
+
+    if not universe.available():
+        import pytest as _pt
+        _pt.skip("financedatabase not installed")
+    df = universe.search("Equities", filters={"country": "Italy"}, query="", limit=25)
+    assert not df.empty and "symbol" in df.columns
+    assert universe.tickers_from(df)
+
+
 # ------------------------------------------------------------- M2 risk profile
 def test_risk_profile_scoring_and_allocation():
     from algohns.modules.risk_profile import QUESTIONS, compute_profile

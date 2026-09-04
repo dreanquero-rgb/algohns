@@ -14,9 +14,11 @@ from pathlib import Path
 import pandas as pd
 
 from ..config import get_settings
-from .utils import lazy_import, require
+from .utils import is_available, lazy_import, require
 
 _yf = lazy_import("yfinance", pip_name="yfinance", reason="download market prices")
+_pdr = lazy_import("pandas_datareader.data", pip_name="pandas-datareader",
+                   reason="download long history from Stooq (back to the 1990s)")
 
 _CACHE_TTL_SECONDS = 60 * 30  # 30 minutes
 
@@ -51,17 +53,31 @@ class MarketData:
             pass
 
     # ----------------------------------------------------------------- prices
+    @staticmethod
+    def _normalize(tickers: str | list[str]) -> list[str]:
+        if isinstance(tickers, str):
+            return [t.strip().upper() for t in tickers.replace(",", " ").split() if t.strip()]
+        return [str(t).strip().upper() for t in tickers if str(t).strip()]
+
     def history(
         self,
         tickers: str | list[str],
         period: str = "5y",
         interval: str = "1d",
         auto_adjust: bool = True,
+        source: str = "yfinance",
+        start: str | None = None,
     ) -> pd.DataFrame:
-        """Return adjusted close prices as a DataFrame (columns = tickers)."""
+        """Return adjusted close prices as a DataFrame (columns = tickers).
+
+        ``source='stooq'`` fetches long history (often back to the 1990s) via
+        pandas-datareader; ``start`` (YYYY-MM-DD) bounds it.
+        """
+        tickers = self._normalize(tickers)
+        if source == "stooq":
+            return self._history_stooq(tickers, start or "1990-01-01")
+
         yf = require(_yf)
-        if isinstance(tickers, str):
-            tickers = [t.strip().upper() for t in tickers.replace(",", " ").split() if t.strip()]
         key = f"{'|'.join(sorted(tickers))}:{period}:{interval}:{auto_adjust}"
         path = self._cache_path(key)
         cached = self._read_cache(path)
@@ -95,6 +111,26 @@ class MarketData:
             if len(tickers) == 1:
                 close.columns = tickers
         return close
+
+    def _history_stooq(self, tickers: list[str], start: str) -> pd.DataFrame:
+        """Long-history close prices from Stooq (data back to the 1990s)."""
+        pdr = require(_pdr)
+        key = f"stooq:{'|'.join(sorted(tickers))}:{start}"
+        path = self._cache_path(key)
+        cached = self._read_cache(path)
+        if cached is not None:
+            return cached
+        frames = {}
+        for t in tickers:
+            try:
+                df = pdr.DataReader(t, "stooq", start=start)
+                if not df.empty and "Close" in df:
+                    frames[t] = df["Close"].sort_index()
+            except Exception:  # noqa: BLE001
+                continue
+        prices = pd.DataFrame(frames).dropna(how="all").ffill().dropna(how="all")
+        self._write_cache(path, prices)
+        return prices
 
     def returns(self, tickers: str | list[str], period: str = "5y") -> pd.DataFrame:
         """Daily simple returns for the requested tickers."""
