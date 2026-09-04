@@ -1,52 +1,43 @@
 # =============================================================================
-# Algohns V12 — Quant Asset Manager OS (Python edition)
+# Algohns V12 — LEAN requirements (Streamlit Community Cloud–safe)
+# Only packages that install reliably on a 1 GB Cloud builder. Every heavy or
+# build-fragile extra lives in requirements-full.txt; the platform degrades
+# gracefully without them (each page shows what to `pip install`).
 # Install:  pip install -r requirements.txt
-# Heavy/optional extras are grouped per module; the platform boots without them
-# and each page tells you what to install to unlock a feature.
+# Full power (local / Docker):  pip install -r requirements-full.txt
 # =============================================================================
 
 # --- Core platform & dashboard ----------------------------------------------
 streamlit>=1.36            # multipage dashboard (st.navigation API)
 pandas>=2.0
 numpy>=1.24
-scipy>=1.11                # precise yield root-finding (brentq)
+scipy>=1.11                # precise bond-yield root-finding (brentq)
 python-dotenv>=1.0
 requests>=2.31
-pyarrow>=14.0              # parquet disk cache for market data
+pyarrow>=14.0              # parquet disk cache
 
 # --- Market data -------------------------------------------------------------
 yfinance>=0.2.40           # prices & fundamentals
-
-# --- Module 1: European Bond Yield & Multi-Tax Engine ------------------------
-QuantLib>=1.33             # independent cross-check of YTM/duration/convexity
-#  (pure-python engine works without it)
-beautifulsoup4>=4.12       # parse Borsa Italiana MOT/EuroMOT list pages
-lxml>=5.0                  # fast HTML parser backend for the screener
-borsa-italiana-scraping>=0.2  # optional: richer per-bond detail (ottieni_scheda)
-
-# --- Module 2: Alpaca Asynchronous Auto-Trading ------------------------------
-alpaca-py>=0.21            # official Alpaca SDK (paper trading)
-celery[redis]>=5.3         # async task queue for background execution
-redis>=5.0                 # broker/result backend
-APScheduler>=3.10          # broker-less scheduler fallback
-
-# --- Module 3: Backtesting & Portfolio Optimization --------------------------
-PyPortfolioOpt>=1.5.5      # Max Sharpe / Min-Var / Black-Litterman
-cvxpy>=1.4                 # convex solver used by PyPortfolioOpt
-ffn>=1.0                   # extended performance stats (optional cross-check)
-financedatabase>=2.2       # 300k+ instrument universe (equities/ETFs/indices…)
 pandas-datareader>=0.10    # Stooq long history (backtests back to the 1990s)
-# vectorbt>=0.26           # optional: vectorised backtesting (heavy; enable if needed)
-# backtrader>=1.9          # optional: event-driven engine
 
-# --- Module 4: S&P 500 Supply Chain Graph ------------------------------------
-sec-edgar-downloader>=5.0  # download 10-K / 10-Q filings
-spacy>=3.7                 # Named-Entity Recognition (ORG extraction)
-#  after install:  python -m spacy download en_core_web_sm
-#  On hosts where you cannot run that command (e.g. Streamlit Cloud), uncomment:
-# https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
-networkx>=3.2              # directed supply-chain graph
-pyvis>=0.3.2               # interactive HTML graph visualisation
+# --- Module 1: European bond screener ---------------------------------------
+beautifulsoup4>=4.12       # parse Borsa Italiana MOT/EuroMOT list pages
+lxml>=5.0
+#  (bond math is pure NumPy/SciPy; QuantLib cross-check is in requirements-full)
 
-# --- Module 5: Consolidated SEC Financial Statements -------------------------
-#  Uses only `requests` + `pandas` against data.sec.gov XBRL company facts.
+# --- Module 2: Alpaca paper trading -----------------------------------------
+alpaca-py>=0.21            # official Alpaca SDK (paper)
+#  (Celery/Redis background workers are in requirements-full)
+
+# --- Module 3: universe + optimization --------------------------------------
+financedatabase>=2.2       # 300k+ instrument universe (bundled, offline)
+#  (PyPortfolioOpt/cvxpy in requirements-full; NumPy optimizer fallback built in)
+
+# --- Module 4: supply-chain graph -------------------------------------------
+networkx>=3.2              # directed graph + contagion metrics
+pyvis>=0.3.2               # interactive HTML graph
+sec-edgar-downloader>=5.0  # download 10-K/10-Q (EDGAR REST fallback built in)
+#  (spaCy NER is in requirements-full; RegEx extraction works without it)
+
+# --- Module 5: SEC financial statements -------------------------------------
+#  Uses only requests + pandas against data.sec.gov XBRL company facts.
