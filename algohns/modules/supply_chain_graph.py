@@ -240,26 +240,62 @@ class SupplyChainAnalyzer:
         }
 
     def render_pyvis(self, g, output_path: str | Path) -> str:
-        """Write an interactive PyVis HTML file and return its path."""
+        """Write an interactive PyVis HTML file and return its path.
+
+        High-contrast rendering: edges are coloured by relation type (bright on
+        a dark-but-not-black canvas), nodes are sized by degree, and directed
+        arrows show the flow of goods.
+        """
         pyvis = require(_pyvis)
-        net = pyvis.Network(height="720px", width="100%", directed=True, bgcolor="#070B13", font_color="#F8FAFC")
-        net.barnes_hut(gravity=-8000, spring_length=120)
+        nx = require(_nx)
+        net = pyvis.Network(
+            height="720px", width="100%", directed=True,
+            bgcolor="#0B1220", font_color="#F8FAFC",
+        )
+        net.barnes_hut(gravity=-9000, spring_length=140, spring_strength=0.02)
+
+        degrees = dict(g.degree())
+        max_deg = max(degrees.values()) if degrees else 1
         for node, data in g.nodes(data=True):
             focal = data.get("kind") == "focal"
+            deg = degrees.get(node, 1)
+            size = 30 if focal else 14 + 16 * (deg / max_deg)
             net.add_node(
-                node,
-                label=node,
-                color="#E2B86B" if focal else "#38BDF8",
-                size=28 if focal else 16,
+                node, label=node,
+                color={
+                    "background": "#E2B86B" if focal else "#38BDF8",
+                    "border": "#F8FAFC" if focal else "#0EA5E9",
+                    "highlight": {"background": "#FCD34D", "border": "#fff"},
+                },
+                size=size, borderWidth=2,
+                title=f"{node} — degree {deg}",
+                font={"size": 18, "color": "#F8FAFC", "strokeWidth": 3, "strokeColor": "#0B1220"},
             )
+        # Bright, distinct edge colours per relation type (the old grey #334155
+        # was invisible on black — this is the fix).
+        edge_colors = {"supplies": "#34D399", "sells_to": "#E2B86B", "partner": "#38BDF8"}
         for u, v, data in g.edges(data=True):
-            net.add_edge(u, v, title=data.get("relation", ""), color="#334155")
+            rel = data.get("relation", "")
+            net.add_edge(
+                u, v, title=rel, label=rel,
+                color=edge_colors.get(rel, "#94A3B8"),
+                width=2.5, arrowStrikethrough=False,
+                font={"size": 11, "color": "#CBD5E1", "strokeWidth": 2, "strokeColor": "#0B1220", "align": "middle"},
+            )
+        net.set_edge_smooth("dynamic")
         output_path = str(output_path)
         try:
             net.write_html(output_path, notebook=False)
         except Exception:  # noqa: BLE001 - older pyvis API
             net.save_graph(output_path)
         return output_path
+
+    # Colour legend the UI can render next to the graph.
+    EDGE_LEGEND = {
+        "supplies (supplier → company)": "#34D399",
+        "sells_to (company → customer)": "#E2B86B",
+        "partner": "#38BDF8",
+    }
 
     # ------------------------------------------------------------- one-shot
     def analyse(self, ticker: str, form: str = "10-K", limit: int = 1) -> SupplyChainResult:
@@ -272,6 +308,31 @@ class SupplyChainAnalyzer:
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+def sample_results() -> list[SupplyChainResult]:
+    """Illustrative real-world S&P 500 supply-chain links (offline fallback).
+
+    Used when live SEC filing access is unavailable (e.g. this sandbox blocks
+    EDGAR). On deploy the live 10-K/10-Q miner replaces this.
+    """
+    data = {
+        "AAPL": [("Taiwan Semiconductor", "supplier"), ("Foxconn", "supplier"),
+                 ("Broadcom", "supplier"), ("Corning", "supplier"), ("Verizon", "customer")],
+        "NVDA": [("Taiwan Semiconductor", "supplier"), ("SK Hynix", "supplier"),
+                 ("Microsoft", "customer"), ("Meta Platforms", "customer"), ("Amazon", "customer")],
+        "TSLA": [("Panasonic", "supplier"), ("CATL", "supplier"), ("Nvidia", "supplier")],
+        "MSFT": [("Nvidia", "supplier"), ("AMD", "supplier"), ("Intel", "supplier")],
+        "AMZN": [("Nvidia", "supplier"), ("Intel", "supplier")],
+    }
+    out = []
+    for company, rels in data.items():
+        out.append(SupplyChainResult(
+            company=company,
+            relationships=[Relationship(company, t, r, evidence="sample dataset") for t, r in rels],
+            metrics={"relationships": len(rels), "source": "sample"},
+        ))
+    return out
+
+
 def _strip_html(raw: str) -> str:
     text = re.sub(r"(?is)<script.*?</script>", " ", raw)
     text = re.sub(r"(?is)<style.*?</style>", " ", text)
