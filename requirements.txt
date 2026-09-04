@@ -34,6 +34,8 @@ APScheduler>=3.10          # broker-less scheduler fallback
 PyPortfolioOpt>=1.5.5      # Max Sharpe / Min-Var / Black-Litterman
 cvxpy>=1.4                 # convex solver used by PyPortfolioOpt
 ffn>=1.0                   # extended performance stats (optional cross-check)
+financedatabase>=2.2       # 300k+ instrument universe (equities/ETFs/indices…)
+pandas-datareader>=0.10    # Stooq long history (backtests back to the 1990s)
 # vectorbt>=0.26           # optional: vectorised backtesting (heavy; enable if needed)
 # backtrader>=1.9          # optional: event-driven engine
 
