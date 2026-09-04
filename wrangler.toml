@@ -11,4 +11,4 @@ enabled = true
 # 2. Put the resulting URL here (or as a secret: `wrangler secret put APP_URL`).
 # 3. Run `wrangler deploy`.
 [vars]
-APP_URL = "https://algohns.streamlit.app"
+APP_URL = "https://algohns.streamlit.app/"
