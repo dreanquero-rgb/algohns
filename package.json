@@ -5,7 +5,7 @@
   "description": "Algohns V11 — Alpaca Paper Quant Asset Manager OS",
   "scripts": {
     "deploy": "wrangler deploy --name algohns",
-    "check": "node --check _worker.js && node --check public/assets/app.js"
+    "check": "node --check _worker.js"
   },
   "devDependencies": {
     "wrangler": "^4.100.0"

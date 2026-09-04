@@ -38,6 +38,8 @@ ffn>=1.0                   # extended performance stats (optional cross-check)
 sec-edgar-downloader>=5.0  # download 10-K / 10-Q filings
 spacy>=3.7                 # Named-Entity Recognition (ORG extraction)
 #  after install:  python -m spacy download en_core_web_sm
+#  On hosts where you cannot run that command (e.g. Streamlit Cloud), uncomment:
+# https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 networkx>=3.2              # directed supply-chain graph
 pyvis>=0.3.2               # interactive HTML graph visualisation
 
