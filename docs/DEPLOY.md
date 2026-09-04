@@ -6,7 +6,7 @@ long-lived Python server with native deps like NumPy/SciPy/QuantLib). The
 recommended setup is:
 
 1. **Host the dashboard** on Streamlit Community Cloud (free) — or any Python host.
-2. **Keep the `algohns.workers.dev` domain** by turning the Cloudflare Worker
+2. **Keep the `algohns.dreanquero.workers.dev` domain** by turning the Cloudflare Worker
    into a redirect that forwards to the live app.
 
 ---
@@ -60,8 +60,8 @@ npm run deploy                    # wrangler deploy --name algohns
 
 Verify:
 ```bash
-curl -I https://algohns.workers.dev/           # -> 302 Location: https://algohns.streamlit.app/
-curl  https://algohns.workers.dev/__redirect_health   # -> {"ok":true,"target":"…"}
+curl -I https://algohns.dreanquero.workers.dev/           # -> 302 Location: https://algohns.streamlit.app/
+curl  https://algohns.dreanquero.workers.dev/__redirect_health   # -> {"ok":true,"target":"…"}
 ```
 
 Until `APP_URL` is set, the Worker serves a branded "coming online" landing page.
