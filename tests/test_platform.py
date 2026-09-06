@@ -163,3 +163,50 @@ def test_sec_full_statements_and_kpis():
     kpis = agg.kpis(facts)
     assert kpis["Revenue"]["value"] == 391035
     assert kpis["Revenue"]["yoy"] is not None                # YoY computed
+
+
+# ------------------------------------------------------- charts & real data
+def test_chart_builders_produce_valid_figures():
+    """Every chart builder must serialise (catches Plotly schema errors)."""
+    import numpy as np
+    from algohns import charts as ch
+
+    idx = pd.bdate_range("2023-01-01", periods=120)
+    df = pd.DataFrame({"A": np.linspace(100, 130, 120), "B": np.linspace(100, 115, 120)}, index=idx)
+    figs = [
+        ch.line(df, "t"),
+        ch.area((df["A"] / df["A"].cummax() - 1).rename("dd"), negative=True),
+        ch.hbar(["x", "y"], [1.5, 2.5], suffix="%"),
+        ch.bar(["a", "b"], [1, -2], color_by_sign=True),
+        ch.grouped_bar(pd.DataFrame({"P": [1, 2], "Q": [3, 4]}, index=["r1", "r2"])),
+        ch.stacked_bar(pd.DataFrame({"P": [1, 2], "Q": [3, 4]}, index=["r1", "r2"])),
+        ch.scatter(pd.DataFrame({"x": [1, 2], "y": [3, 4], "n": ["a", "b"], "g": ["IT", "DE"]}),
+                   "x", "y", "n", group="g"),
+        ch.heatmap(df.corr()),
+        ch.donut(["a", "b"], [0.6, 0.4]),
+        ch.waterfall(["r", "c", "n"], [10, -4, None], ["absolute", "relative", "total"]),
+    ]
+    for f in figs:
+        assert f.to_json()          # full Plotly validation
+    # palette integrity: fixed order, never cycled within the 8 slots
+    assert len(ch.SERIES) == 8 and len(set(ch.SERIES)) == 8
+    assert ch.color(0) == ch.SERIES[0]
+
+
+def test_bundled_reference_data_is_real():
+    from algohns.modules import reference_data as rd
+
+    const = rd.sp500_constituents()
+    assert len(const) > 400 and {"Symbol", "GICS Sector", "CIK"} <= set(const.columns)
+    # real, verifiable CIKs
+    assert rd.cik_map()["AAPL"] == "0000320193"
+    assert rd.cik_map()["MSFT"] == "0000789019"
+
+    hist = rd.spx_history()
+    assert len(hist) > 1500 and hist.index.min().year <= 1875
+    assert (hist["SP500"] > 0).all()
+
+    y10 = rd.us10y()
+    assert len(y10) > 700 and y10.index.min().year <= 1953
+
+    assert len(rd.spx_prices("1990-01-01")) > 300

@@ -9,6 +9,7 @@
 
 # --- Core platform & dashboard ----------------------------------------------
 streamlit>=1.36            # multipage dashboard (st.navigation API)
+plotly>=5.20               # all charts (validated palette, interactive hover)
 pandas>=2.0
 numpy>=1.24
 scipy>=1.11                # precise bond-yield root-finding (brentq)

@@ -57,6 +57,16 @@ def home() -> None:
                         unsafe_allow_html=True)
 
     st.divider()
+    st.markdown("#### Bundled real datasets")
+    try:
+        from algohns.modules.reference_data import available
+        cols = st.columns(3)
+        for col, (name, rows) in zip(cols, available().items()):
+            col.metric(name, f"{rows:,}" if rows else "—", help="Real data shipped with the repo")
+    except Exception:  # noqa: BLE001
+        st.caption("Reference datasets unavailable.")
+
+    st.divider()
     with st.expander("⚙️ Configuration (secrets masked)"):
         st.json(settings.masked())
         st.caption(

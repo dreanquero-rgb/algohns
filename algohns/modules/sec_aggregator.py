@@ -109,6 +109,16 @@ class SECAggregator:
         return {row["ticker"].upper(): str(row["cik_str"]).zfill(10) for row in data.values()}
 
     def cik_for(self, ticker: str) -> str:
+        """Resolve a ticker to its zero-padded CIK.
+
+        Prefers the bundled real S&P 500 CIK map (offline, no network) and only
+        falls back to SEC's live ticker file for names outside the index.
+        """
+        from .reference_data import cik_map
+
+        cik = cik_map().get(ticker.upper())
+        if cik:
+            return cik
         cik = self._ticker_map().get(ticker.upper())
         if not cik:
             raise ValueError(f"ticker {ticker} not found in EDGAR ticker map")

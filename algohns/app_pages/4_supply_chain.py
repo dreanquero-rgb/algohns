@@ -9,6 +9,8 @@ from algohns.config import get_settings
 from algohns.core.utils import is_available
 from algohns.modules import supply_chain_graph as scg
 from algohns.modules.supply_chain_graph import SupplyChainAnalyzer, sample_results
+from algohns.modules.reference_data import sector_breakdown, sp500_constituents
+from algohns import charts as ch
 from algohns.ui import dependency_notice, header
 
 header(
@@ -80,8 +82,28 @@ if st.button("Build supply-chain graph", type="primary"):
         st.caption(f"Interactive graph unavailable ({exc}). `pip install pyvis` to enable.")
 
     if metrics.get("top_systemic"):
-        st.markdown("**Most systemically important nodes (PageRank + contagion reach)**")
-        st.dataframe(pd.DataFrame(metrics["top_systemic"]), use_container_width=True, hide_index=True)
+        ts = pd.DataFrame(metrics["top_systemic"])
+        cc = st.columns(2)
+        with cc[0]:
+            st.plotly_chart(
+                ch.hbar(ts["node"], ts["pagerank"], title="Systemic importance (PageRank)",
+                        height=340, value_fmt="{:.3f}"),
+                use_container_width=True)
+        with cc[1]:
+            st.plotly_chart(
+                ch.hbar(ts["node"], ts["contagion_reach"], slot=1,
+                        title="Contagion reach (downstream nodes)", height=340,
+                        value_fmt="{:.0f}"),
+                use_container_width=True)
+        with st.expander("Systemic metrics table"):
+            st.dataframe(ts, use_container_width=True, hide_index=True)
+
+    # Relationship mix
+    if all_rels:
+        mix = pd.Series([r.relation for r in all_rels]).value_counts()
+        st.plotly_chart(
+            ch.donut(mix.index, mix.values, title="Relationship mix", height=300),
+            use_container_width=True)
 
     if all_rels:
         with st.expander("All relationships"):
@@ -90,3 +112,20 @@ if st.button("Build supply-chain graph", type="primary"):
                                "evidence": r.evidence} for r in all_rels]),
                 use_container_width=True, hide_index=True,
             )
+
+
+# =============================================================================
+# Real S&P 500 index composition (bundled dataset — works offline)
+# =============================================================================
+with st.expander("🏛️ S&P 500 index composition (real data)", expanded=False):
+    const = sp500_constituents()
+    if const.empty:
+        st.info("Constituents dataset not bundled.")
+    else:
+        st.caption(f"Real index membership — {len(const)} companies with GICS sector and SEC CIK.")
+        sectors = sector_breakdown()
+        st.plotly_chart(
+            ch.hbar(sectors.index, sectors.values, title="Companies per GICS sector",
+                    height=380, value_fmt="{:.0f}"),
+            use_container_width=True)
+        st.dataframe(const, use_container_width=True, hide_index=True, height=320)

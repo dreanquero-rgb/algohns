@@ -14,6 +14,7 @@ from algohns.core.data_providers import get_market_data
 from algohns.modules.alpaca_execution import AlpacaExecutionEngine, OrderTicket
 from algohns.modules.backtest_suite import Backtester, compute_metrics
 from algohns.modules.risk_profile import ASSET_PROXIES, QUESTIONS, compute_profile
+from algohns import charts as ch
 from algohns.ui import dependency_notice, header, paper_lock_banner
 
 header(
@@ -59,8 +60,18 @@ with tabs[0]:
              for k, v in profile.allocation.items()]
         ).sort_values("Weight %", ascending=False)
         cc = st.columns([1, 1])
-        cc[0].dataframe(alloc_df, use_container_width=True, hide_index=True)
-        cc[1].bar_chart(alloc_df.set_index("ETF")["Weight %"])
+        with cc[0]:
+            st.plotly_chart(
+                ch.donut(alloc_df["ETF"], alloc_df["Weight %"] / 100,
+                         title="Strategic allocation", center=profile.label),
+                use_container_width=True)
+        with cc[1]:
+            st.plotly_chart(
+                ch.hbar(alloc_df["Asset class"], alloc_df["Weight %"],
+                        title="Weight by asset class", height=340,
+                        value_fmt="{:.1f}", suffix="%"),
+                use_container_width=True)
+        st.dataframe(alloc_df, use_container_width=True, hide_index=True)
         st.success("Profile saved — use it in the **Profile Backtest** and **Paper Trading** tabs.")
 
 # =============================================================================
@@ -90,8 +101,14 @@ with tabs[1]:
                     k[1].metric("Sharpe", f"{m['sharpe']:.2f}")
                     k[2].metric("Max DD", f"{m['max_drawdown']*100:.2f}%")
                     k[3].metric("Volatility", f"{m['annual_volatility']*100:.2f}%")
-                    st.line_chart(res.equity_curve.rename("Portfolio"))
-                    st.area_chart(res.drawdown_curve.rename("Drawdown"))
+                    st.plotly_chart(
+                        ch.line(res.equity_curve.rename("Portfolio").to_frame(),
+                                title=f"Equity curve — {profile.label} allocation"),
+                        use_container_width=True)
+                    st.plotly_chart(
+                        ch.area(res.drawdown_curve.rename("Drawdown"),
+                                title="Drawdown", negative=True),
+                        use_container_width=True)
             except Exception as exc:  # noqa: BLE001
                 dependency_notice(exc)
 
