@@ -1,10 +1,4 @@
-"""Streamlit page — Module 1: European Bond Screener & Multi-Tax Yield Engine.
-
-A RendimentiBTP / simpletoolsforinvestors-style screener: the full list of
-European bonds (BTP/BOT/CCT/EuroMOT) with gross & net yield-to-maturity,
-duration and current yield computed per instrument for the chosen tax profile —
-filterable and sortable — plus a single-bond calculator for deep analysis.
-"""
+"""Streamlit page — Module 1: European Bond Screener & Multi-Tax Yield Engine."""
 from __future__ import annotations
 
 from datetime import date
@@ -12,8 +6,10 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
+from algohns import charts as ch
 from algohns.modules.bond_data import MOT_LISTS, BondScreener, tax_profile_options
 from algohns.modules.bond_engine import TAX_PROFILES, Bond, BondEngine
+from algohns.modules.reference_data import us10y
 from algohns.ui import dependency_notice, header
 
 header(
@@ -24,46 +20,46 @@ header(
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def _load_universe(markets: tuple[str, ...]):
+def _universe(markets: tuple[str, ...]):
     sc = BondScreener()
-    bonds, source = sc.load_universe(list(markets))
-    return bonds, source
+    return sc.load_universe(list(markets))
 
 
-tab_screener, tab_calc = st.tabs(["📋 Screener", "🧮 Single-bond calculator"])
+@st.cache_data(ttl=1800, show_spinner=False)
+def _table(markets: tuple[str, ...], tax_key: str) -> tuple[pd.DataFrame, str]:
+    bonds, source = _universe(markets)
+    return BondScreener().build_table(bonds, tax_key=tax_key), source
+
+
+tab_screener, tab_curve, tab_calc = st.tabs(
+    ["📋 Screener", "📈 Yield curve & analytics", "🧮 Single-bond calculator"]
+)
 
 # =============================================================================
 # TAB 1 — SCREENER
 # =============================================================================
 with tab_screener:
     top = st.columns([2, 2, 1])
-    markets = top[0].multiselect("Markets", list(MOT_LISTS.keys()),
-                                 default=list(MOT_LISTS.keys()))
+    markets = top[0].multiselect("Markets", list(MOT_LISTS.keys()), default=list(MOT_LISTS.keys()))
     tax_opts = tax_profile_options()
     tax_key = top[1].selectbox("Tax profile (applied to whole table)",
                                list(tax_opts.keys()), format_func=lambda k: tax_opts[k])
     if top[2].button("🔄 Refresh", help="Re-fetch the live universe"):
-        _load_universe.clear()
+        _universe.clear(); _table.clear()
 
     try:
-        bonds, source = _load_universe(tuple(markets) or tuple(MOT_LISTS.keys()))
+        df, source = _table(tuple(markets) or tuple(MOT_LISTS.keys()), tax_key)
     except Exception as exc:  # noqa: BLE001
-        dependency_notice(exc)
-        st.stop()
+        dependency_notice(exc); st.stop()
 
     if source == "live":
-        st.success(f"🟢 Live data from Borsa Italiana — {len(bonds)} instruments.")
+        st.success(f"🟢 Live data from Borsa Italiana — {len(df)} instruments.")
     else:
-        st.warning("🟡 Showing **sample** data (exchange unreachable from here). "
-                   "On deploy — where outbound network is open — this loads the live universe.")
-
-    sc = BondScreener()
-    df = sc.build_table(bonds, tax_key=tax_key)
+        st.warning("🟡 Sample universe (exchange unreachable from here). On deploy this "
+                   "loads the live MOT/EuroMOT list automatically.")
     if df.empty:
-        st.info("No instruments loaded.")
-        st.stop()
+        st.info("No instruments loaded."); st.stop()
 
-    # ---- Filters -----------------------------------------------------------
     with st.expander("🔎 Filters", expanded=True):
         f = st.columns(4)
         countries = sorted(df["Country"].dropna().unique().tolist())
@@ -80,8 +76,8 @@ with tab_screener:
     if "NetYTM%" in df and min_net > 0:
         mask &= df["NetYTM%"].fillna(-99) >= min_net
     view = df[mask].copy()
+    st.session_state["bond_view"] = view
 
-    # ---- Metrics row -------------------------------------------------------
     m = st.columns(4)
     m[0].metric("Instruments", len(view))
     if "NetYTM%" in view and view["NetYTM%"].notna().any():
@@ -90,7 +86,6 @@ with tab_screener:
         m[2].metric("Top Net YTM", f"{best['NetYTM%']:.2f}%", help=str(best["Name"]))
         m[3].metric("Avg Mod.Duration", f"{view['ModDur'].mean():.2f}")
 
-    # ---- Table (sortable) --------------------------------------------------
     col_cfg = {
         "Coupon%": st.column_config.NumberColumn(format="%.2f%%"),
         "YTM%": st.column_config.NumberColumn("Gross YTM", format="%.3f%%"),
@@ -100,16 +95,74 @@ with tab_screener:
         "ModDur": st.column_config.NumberColumn("Mod.Dur", format="%.2f"),
         "Years": st.column_config.NumberColumn(format="%.1f"),
     }
-    st.dataframe(
-        view.sort_values("NetYTM%", ascending=False, na_position="last"),
-        use_container_width=True, hide_index=True, height=460, column_config=col_cfg,
-    )
+    st.dataframe(view.sort_values("NetYTM%", ascending=False, na_position="last"),
+                 use_container_width=True, hide_index=True, height=430, column_config=col_cfg)
     st.download_button("⬇️ Download CSV", view.to_csv(index=False).encode(),
                        file_name="algohns_bond_screener.csv", mime="text/csv")
     st.caption(f"Tax profile: {TAX_PROFILES[tax_key].name} — {TAX_PROFILES[tax_key].note}")
 
 # =============================================================================
-# TAB 2 — SINGLE-BOND CALCULATOR
+# TAB 2 — YIELD CURVE & ANALYTICS CHARTS
+# =============================================================================
+with tab_curve:
+    view = st.session_state.get("bond_view")
+    if view is None or view.empty:
+        st.info("Load the screener first (tab 1).")
+    else:
+        priced = view.dropna(subset=["NetYTM%", "Years"]).copy()
+        if priced.empty:
+            st.info("No priced instruments to chart.")
+        else:
+            # --- Yield curve: net YTM vs maturity, grouped by country ---------
+            st.plotly_chart(
+                ch.scatter(priced, x="Years", y="NetYTM%", label="Name", group="Country",
+                           title="Yield curve — net YTM by maturity",
+                           xtitle="Years to maturity", ytitle="Net YTM", suffix="%"),
+                use_container_width=True,
+            )
+
+            c1, c2 = st.columns(2)
+            # --- Top net yields (direct-labelled bars) ------------------------
+            top15 = priced.nlargest(min(12, len(priced)), "NetYTM%")
+            with c1:
+                st.plotly_chart(
+                    ch.hbar(top15["Name"], top15["NetYTM%"], title="Highest net yields",
+                            height=380, value_fmt="{:.2f}", suffix="%"),
+                    use_container_width=True,
+                )
+            # --- Tax drag: gross vs net --------------------------------------
+            with c2:
+                cmp_src = top15.head(6).copy()
+                # Long instrument names must not collide on the x-axis.
+                cmp_src["Short"] = (cmp_src["Name"].str.replace("SAMPLE ", "", regex=False)
+                                    .str.slice(0, 22))
+                cmp_df = cmp_src.set_index("Short")[["YTM%", "NetYTM%"]].rename(
+                    columns={"YTM%": "Gross YTM", "NetYTM%": "Net YTM"})
+                st.plotly_chart(
+                    ch.grouped_bar(cmp_df, title="Tax drag — gross vs net YTM", height=380),
+                    use_container_width=True,
+                )
+
+            # --- Duration vs yield (risk/return of the bond book) -------------
+            st.plotly_chart(
+                ch.scatter(priced, x="ModDur", y="NetYTM%", label="Name", group="Country",
+                           title="Risk vs reward — modified duration vs net YTM",
+                           xtitle="Modified duration", ytitle="Net YTM", suffix="%", height=380),
+                use_container_width=True,
+            )
+
+        # --- Real macro context: US 10Y since 1953 ---------------------------
+        y10 = us10y()
+        if not y10.empty:
+            st.plotly_chart(
+                ch.line(y10.to_frame(), title="US 10-year Treasury yield — real history since 1953",
+                        height=300),
+                use_container_width=True,
+            )
+            st.caption("Real dataset bundled with the repo (monthly, 1953→today).")
+
+# =============================================================================
+# TAB 3 — SINGLE-BOND CALCULATOR
 # =============================================================================
 with tab_calc:
     with st.form("bond"):
@@ -139,12 +192,12 @@ with tab_calc:
             engine = BondEngine()
             res = engine.analyse(bond, tax_key=tax_key2)
         except Exception as exc:  # noqa: BLE001
-            dependency_notice(exc)
-            st.stop()
+            dependency_notice(exc); st.stop()
 
         m = st.columns(4)
         m[0].metric("Gross YTM", f"{res.ytm_gross*100:.3f}%")
-        m[1].metric("Net YTM", f"{res.ytm_net*100:.3f}%", delta=f"{(res.ytm_net-res.ytm_gross)*100:.3f}%")
+        m[1].metric("Net YTM", f"{res.ytm_net*100:.3f}%",
+                    delta=f"{(res.ytm_net-res.ytm_gross)*100:.3f}%")
         m[2].metric("Modified Duration", f"{res.modified_duration:.3f}")
         m[3].metric("Convexity", f"{res.convexity:.2f}")
         m2 = st.columns(4)
@@ -156,10 +209,13 @@ with tab_calc:
             st.info(f"Capital loss → minusvalenza tax credit {res.minusvalenza_credit:.2f}.")
 
         cf = pd.DataFrame(res.cashflow_table)
-        st.markdown("**Cash-flow schedule (gross vs net)**")
-        st.dataframe(cf, use_container_width=True, hide_index=True)
         if not cf.empty:
-            st.line_chart(cf.set_index("date")[["gross_cf", "net_cf"]])
+            cfc = cf.set_index("date")[["gross_cf", "net_cf"]].rename(
+                columns={"gross_cf": "Gross cash-flow", "net_cf": "Net cash-flow"})
+            st.plotly_chart(ch.grouped_bar(cfc, title="Cash-flow schedule — gross vs net after tax"),
+                            use_container_width=True)
+        with st.expander("Cash-flow table"):
+            st.dataframe(cf, use_container_width=True, hide_index=True)
 
         ql = engine.quantlib_crosscheck(bond)
         with st.expander("QuantLib cross-check (independent verification)"):
