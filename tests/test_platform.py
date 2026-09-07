@@ -229,10 +229,17 @@ def test_screener_columns_exist_even_with_unpriced_bonds():
     unpriced = [ScreenerBond(isin="IT0000000001", name="BTP no price", market="BTP",
                              country="IT", type="govt", price=None, coupon=None,
                              maturity=_d(2030, 1, 1))]
+    from algohns.modules.bond_data import SCREENER_COLUMNS
+
     df = BondScreener().build_table(unpriced)
-    for col in ("YTM%", "NetYTM%", "ModDur", "Curr.Yield%", "Accrued"):
-        assert col in df.columns, f"{col} must exist even when nothing computes"
+    assert list(df.columns) == SCREENER_COLUMNS
     df.sort_values("NetYTM%", na_position="last")      # must not raise
+
+    # And the harder case: an entirely empty universe (live feed returned
+    # nothing) previously produced a frame with NO columns at all.
+    empty = BondScreener().build_table([])
+    assert list(empty.columns) == SCREENER_COLUMNS and empty.empty
+    empty.sort_values("NetYTM%", na_position="last")   # must not raise
 
 
 def test_backtester_gives_clear_error_on_unusable_data():

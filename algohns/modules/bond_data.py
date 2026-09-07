@@ -203,6 +203,14 @@ def load_sample() -> list[ScreenerBond]:
 # ---------------------------------------------------------------------------
 # Screener
 # ---------------------------------------------------------------------------
+# Every screener frame carries exactly these columns, in this order — including
+# when the universe is empty — so downstream sorting/filtering is always safe.
+SCREENER_COLUMNS: list[str] = [
+    "ISIN", "Name", "Mkt", "Country", "Type", "Coupon%", "Price",
+    "YTM%", "NetYTM%", "Curr.Yield%", "ModDur", "Accrued", "Maturity", "Years", "Curr",
+]
+
+
 class BondScreener:
     """Fetches the universe and computes the analytics table."""
 
@@ -260,12 +268,13 @@ class BondScreener:
                 except Exception:  # noqa: BLE001
                     pass
             recs.append(rec)
-        df = pd.DataFrame(recs)
-        # Order columns nicely.
-        preferred = ["ISIN", "Name", "Mkt", "Country", "Type", "Coupon%", "Price",
-                     "YTM%", "NetYTM%", "Curr.Yield%", "ModDur", "Accrued", "Maturity", "Years", "Curr"]
-        cols = [c for c in preferred if c in df.columns] + [c for c in df.columns if c not in preferred]
-        return df[cols] if not df.empty else df
+        df = pd.DataFrame(recs, columns=SCREENER_COLUMNS if not recs else None)
+        # Guarantee the full schema even for an empty universe, then order it.
+        for col in SCREENER_COLUMNS:
+            if col not in df.columns:
+                df[col] = None
+        extra = [c for c in df.columns if c not in SCREENER_COLUMNS]
+        return df[SCREENER_COLUMNS + extra]
 
 
 def tax_profile_options() -> dict[str, str]:
