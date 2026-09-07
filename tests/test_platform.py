@@ -161,8 +161,15 @@ def test_sec_full_statements_and_kpis():
     inc = agg.full_statement(facts, "income_statement", years=5)
     assert inc.shape[1] == 5 and inc.shape[0] >= 10          # multi-year, full lines
     kpis = agg.kpis(facts)
-    assert kpis["Revenue"]["value"] == 391035
+    # Fixture is in absolute USD, matching the scale of real SEC XBRL facts.
+    assert kpis["Revenue"]["value"] == 391_035 * 1_000_000
     assert kpis["Revenue"]["yoy"] is not None                # YoY computed
+    assert kpis["EPS (Diluted)"]["value"] == 6.08            # per-share stays unscaled
+
+    # "Bilanci interi": every line of every statement must be populated.
+    for stmt in ("income_statement", "balance_sheet", "cash_flow"):
+        df = agg.full_statement(facts, stmt, years=5)
+        assert df.isna().all(axis=1).sum() == 0, f"{stmt} has empty lines"
 
 
 # ------------------------------------------------------- charts & real data
@@ -210,3 +217,49 @@ def test_bundled_reference_data_is_real():
     assert len(y10) > 700 and y10.index.min().year <= 1953
 
     assert len(rd.spx_prices("1990-01-01")) > 300
+
+
+# ---------------------------------------------------- crash regressions (live)
+def test_screener_columns_exist_even_with_unpriced_bonds():
+    """Regression: live MOT rows without prices produced no NetYTM% column,
+    so the page's sort_values('NetYTM%') raised KeyError."""
+    from datetime import date as _d
+    from algohns.modules.bond_data import BondScreener, ScreenerBond
+
+    unpriced = [ScreenerBond(isin="IT0000000001", name="BTP no price", market="BTP",
+                             country="IT", type="govt", price=None, coupon=None,
+                             maturity=_d(2030, 1, 1))]
+    df = BondScreener().build_table(unpriced)
+    for col in ("YTM%", "NetYTM%", "ModDur", "Curr.Yield%", "Accrued"):
+        assert col in df.columns, f"{col} must exist even when nothing computes"
+    df.sort_values("NetYTM%", na_position="last")      # must not raise
+
+
+def test_backtester_gives_clear_error_on_unusable_data():
+    """Regression: empty or too-short price data surfaced as pandas'
+    'No objects to concatenate' instead of an actionable message."""
+    from algohns.modules.backtest_suite import Backtester
+
+    empty = pd.DataFrame({"AAA": [], "BBB": []}, dtype=float)
+    with pytest.raises(ValueError) as e:
+        Backtester(empty).run({"AAA": 0.5, "BBB": 0.5})
+    assert "concatenate" not in str(e.value).lower()
+
+    one_row = pd.DataFrame({"AAA": [100.0], "BBB": [100.0]},
+                           index=pd.to_datetime(["2024-01-02"]))
+    with pytest.raises(ValueError) as e2:
+        Backtester(one_row).run({"AAA": 0.5, "BBB": 0.5})
+    assert "history" in str(e2.value).lower()
+
+
+def test_supply_chain_map_is_rich():
+    """The curated map must be substantial, not a toy example."""
+    from algohns.modules.supply_chain_graph import SupplyChainAnalyzer, sample_results
+
+    res = sample_results()
+    an = SupplyChainAnalyzer()
+    g = an.build_graph(res)
+    assert len(res) >= 30, "at least 30 focal companies"
+    assert g.number_of_edges() >= 150, "at least 150 supply-chain links"
+    m = an.systemic_metrics(g)
+    assert m["top_systemic"] and m["nodes"] > 100

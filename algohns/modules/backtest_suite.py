@@ -262,8 +262,18 @@ class Backtester:
         risk_free: float = 0.0,
     ) -> BacktestResult:
         cols = [c for c in weights if c in self.prices.columns]
+        if not cols:
+            raise ValueError(
+                "None of the optimized tickers have price history. "
+                "Check the symbols (some exchanges need a suffix, e.g. ENI.MI)."
+            )
         px = self.prices[cols]
         rets = px.pct_change().dropna()
+        if rets.empty:
+            raise ValueError(
+                "Not enough overlapping price history to run a backtest "
+                "(need at least two common dates across the selected tickers)."
+            )
         w = pd.Series({c: weights[c] for c in cols})
         w = w / w.sum()
 
@@ -297,6 +307,8 @@ class Backtester:
     def _rebalanced_returns(rets: pd.DataFrame, target: pd.Series, freq: str) -> pd.Series:
         """Return portfolio returns with weights reset to target each period."""
         out = []
+        if rets.empty:
+            return pd.Series(dtype=float)
         # Group by calendar period; within each period weights drift.
         grouper = rets.groupby(rets.index.to_period(freq))
         for _, block in grouper:
@@ -305,6 +317,8 @@ class Backtester:
             port_val = weighted / weighted.shift(1)
             port_val.iloc[0] = float((block.iloc[0] * target).sum() + 1)
             out.append(port_val - 1)
+        if not out:                      # nothing to concatenate -> flat series
+            return pd.Series(0.0, index=rets.index)
         series = pd.concat(out).sort_index()
         return series.reindex(rets.index).fillna(0.0)
 

@@ -298,38 +298,68 @@ class SECAggregator:
 
 
 def sample_facts(ticker: str = "DEMO") -> CompanyFacts:
-    """A synthetic multi-year company-facts fixture for offline demo.
+    """A complete multi-year company-facts fixture for offline demo.
 
-    Used when data.sec.gov is unreachable (e.g. this sandbox). On deploy the
-    live EDGAR XBRL facts replace it.
+    Every line item of all three statements is populated, in **absolute USD**
+    (the same scale SEC XBRL uses), so the offline view looks exactly like the
+    live one. Used only when data.sec.gov is unreachable.
     """
     years = [2020, 2021, 2022, 2023, 2024]
+    M = 1_000_000  # figures below are in millions -> stored in absolute USD
 
-    def _fy(values, unit="USD"):
+    def _fy(values, unit="USD", scale=M):
         return {"units": {unit: [
-            {"form": "10-K", "fp": "FY", "fy": y, "end": f"{y}-12-31", "val": v}
+            {"form": "10-K", "fp": "FY", "fy": y, "end": f"{y}-09-28", "val": v * scale}
             for y, v in zip(years, values)
         ]}}
 
+    def _raw(values, unit="USD/shares"):
+        return _fy(values, unit=unit, scale=1)
+
     gaap = {
+        # --- Income statement -------------------------------------------------
         "Revenues": _fy([274_515, 365_817, 394_328, 383_285, 391_035]),
         "CostOfRevenue": _fy([169_559, 212_981, 223_546, 214_137, 210_352]),
         "GrossProfit": _fy([104_956, 152_836, 170_782, 169_148, 180_683]),
         "ResearchAndDevelopmentExpense": _fy([18_752, 21_914, 26_251, 29_915, 31_370]),
+        "SellingGeneralAndAdministrativeExpense": _fy([19_916, 21_973, 25_094, 24_932, 26_097]),
+        "OperatingExpenses": _fy([38_668, 43_887, 51_345, 54_847, 57_467]),
         "OperatingIncomeLoss": _fy([66_288, 108_949, 119_437, 114_301, 123_216]),
+        "InterestExpense": _fy([2_873, 2_645, 2_931, 3_933, 4_100]),
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest":
+            _fy([67_091, 109_207, 119_103, 113_736, 123_485]),
+        "IncomeTaxExpenseBenefit": _fy([9_680, 14_527, 19_300, 16_741, 29_749]),
         "NetIncomeLoss": _fy([57_411, 94_680, 99_803, 96_995, 93_736]),
-        "EarningsPerShareDiluted": _fy([3.28, 5.61, 6.11, 6.13, 6.08]),
-        "Assets": _fy([323_888, 351_002, 352_755, 352_583, 364_980]),
-        "Liabilities": _fy([258_549, 287_912, 302_083, 290_437, 308_030]),
-        "StockholdersEquity": _fy([65_339, 63_090, 50_672, 62_146, 56_950]),
+        "EarningsPerShareBasic": _raw([3.31, 5.67, 6.15, 6.16, 6.11]),
+        "EarningsPerShareDiluted": _raw([3.28, 5.61, 6.11, 6.13, 6.08]),
+        "WeightedAverageNumberOfDilutedSharesOutstanding":
+            _fy([17_528, 16_865, 16_326, 15_813, 15_408], unit="shares", scale=1_000),
+        # --- Balance sheet ----------------------------------------------------
+        "CashAndCashEquivalentsAtCarryingValue": _fy([38_016, 34_940, 23_646, 29_965, 29_943]),
+        "ShortTermInvestments": _fy([52_927, 27_699, 24_658, 31_590, 35_228]),
+        "AccountsReceivableNetCurrent": _fy([16_120, 26_278, 28_184, 29_508, 33_410]),
+        "InventoryNet": _fy([4_061, 6_580, 4_946, 6_331, 7_286]),
         "AssetsCurrent": _fy([143_713, 134_836, 135_405, 143_566, 152_987]),
+        "PropertyPlantAndEquipmentNet": _fy([36_766, 39_440, 42_117, 43_715, 45_680]),
+        "Goodwill": _fy([0, 0, 0, 0, 0]),
+        "Assets": _fy([323_888, 351_002, 352_755, 352_583, 364_980]),
+        "AccountsPayableCurrent": _fy([42_296, 54_763, 64_115, 62_611, 68_960]),
         "LiabilitiesCurrent": _fy([105_392, 125_481, 153_982, 145_308, 176_392]),
         "LongTermDebtNoncurrent": _fy([98_667, 109_106, 98_959, 95_281, 85_750]),
+        "Liabilities": _fy([258_549, 287_912, 302_083, 290_437, 308_030]),
+        "RetainedEarningsAccumulatedDeficit": _fy([14_966, 5_562, -3_068, -214, -19_154]),
+        "StockholdersEquity": _fy([65_339, 63_090, 50_672, 62_146, 56_950]),
+        # --- Cash flow --------------------------------------------------------
         "NetCashProvidedByUsedInOperatingActivities": _fy([80_674, 104_038, 122_151, 110_543, 118_254]),
+        "DepreciationDepletionAndAmortization": _fy([11_056, 11_284, 11_104, 11_519, 11_445]),
+        "ShareBasedCompensation": _fy([6_829, 7_906, 9_038, 10_833, 11_688]),
+        "PaymentsToAcquirePropertyPlantAndEquipment": _fy([7_309, 11_085, 10_708, 10_959, 9_447]),
         "NetCashProvidedByUsedInInvestingActivities": _fy([-4_289, -14_545, -22_354, 3_705, 2_935]),
         "NetCashProvidedByUsedInFinancingActivities": _fy([-86_820, -93_353, -110_749, -108_488, -121_983]),
-        "PaymentsToAcquirePropertyPlantAndEquipment": _fy([7_309, 11_085, 10_708, 10_959, 9_447]),
         "PaymentsOfDividendsCommonStock": _fy([14_081, 14_467, 14_841, 15_025, 15_234]),
+        "PaymentsForRepurchaseOfCommonStock": _fy([72_358, 85_971, 89_402, 77_550, 94_949]),
+        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect":
+            _fy([-10_435, -3_860, -10_952, 5_760, -794]),
     }
     return CompanyFacts(ticker=ticker.upper(), cik="0000000000",
                         entity_name=f"{ticker.upper()} (sample data)",

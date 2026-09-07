@@ -21,12 +21,14 @@ header(
 
 settings = get_settings()
 c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
-tickers = c1.text_input("Focal tickers", value="AAPL NVDA TSLA MSFT AMZN")
+tickers = c1.text_input("Focal tickers (leave empty for the full map)", value="",
+                       placeholder="e.g. AAPL NVDA TSLA — empty shows all companies")
 form = c2.selectbox("Filing", ["10-K", "10-Q"])
 limit = c3.number_input("Filings/ticker", 1, 3, 1)
-use_sample = c4.toggle("Sample data", value=True,
-                       help="Use the bundled example graph (SEC is blocked in this sandbox; "
-                            "turn off on deploy to mine live filings).")
+use_sample = c4.toggle("Curated map", value=True,
+                       help="Use the curated supply-chain map (40 companies, 185 links) — "
+                            "instant. Turn off to mine live 10-K/10-Q filings, which is "
+                            "accurate but slow (one SEC fetch per ticker).")
 
 if not is_available(scg._spacy):  # noqa: SLF001
     st.info("spaCy not installed → RegEx-only extraction. For better NER: "
@@ -57,7 +59,7 @@ if st.button("Build supply-chain graph", type="primary"):
         st.stop()
 
     all_rels = [r for res in results for r in res.relationships]
-    st.subheader(f"Extracted {len(all_rels)} relationships")
+    st.subheader(f"{len(all_rels)} relationships across {len(results)} focal companies")
 
     if metrics:
         m = st.columns(3)
