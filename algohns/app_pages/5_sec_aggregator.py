@@ -33,6 +33,21 @@ def _row(df: pd.DataFrame, label: str) -> pd.Series | None:
     return s if not s.empty else None
 
 
+
+def _load_facts(agg, ticker: str, prefer_live: bool):
+    """Live SEC facts when available, else the complete sample fixture.
+
+    Returns (facts, is_live). On Streamlit Cloud the network is open so live
+    data loads; in restricted environments this degrades without crashing.
+    """
+    if prefer_live:
+        try:
+            return agg.company_facts(ticker), True
+        except Exception:  # noqa: BLE001
+            return sample_facts(ticker), False
+    return sample_facts(ticker), False
+
+
 header(
     "Consolidated SEC Financial Statements",
     "Bilanci interi (Income Statement · Balance Sheet · Cash Flow) con KPI e grafici.",
@@ -50,14 +65,18 @@ if mode.startswith("📄"):
     c1, c2, c3 = st.columns([2, 1, 1])
     ticker = c1.text_input("Ticker", value="AAPL")
     years = c2.slider("Years", 2, 8, 5)
-    use_sample = c3.toggle("Sample data", value=True,
-                           help="SEC EDGAR is blocked in this sandbox; on deploy turn off for live data.")
+    live = c3.toggle("Live SEC data", value=True,
+                     help="Fetch real XBRL facts from data.sec.gov. Falls back to the "
+                          "sample fixture automatically if EDGAR is unreachable.")
 
     if st.button("Load financial statements", type="primary"):
-        try:
-            facts = sample_facts(ticker) if use_sample else agg.company_facts(ticker)
-        except Exception as exc:  # noqa: BLE001
-            dependency_notice(exc); st.stop()
+        with st.spinner("Fetching XBRL company facts from SEC EDGAR…"):
+            facts, is_live = _load_facts(agg, ticker, live)
+        if is_live:
+            st.success(f"🟢 Live SEC EDGAR data — CIK {facts.cik}")
+        else:
+            st.warning("🟡 Sample data (SEC EDGAR unreachable from here). "
+                       "On deploy this loads the company's real filings.")
 
         st.subheader(facts.entity_name)
 
@@ -152,20 +171,24 @@ if mode.startswith("📄"):
 # =============================================================================
 else:
     tickers = st.text_input("Tickers to compare", value="AAPL MSFT GOOGL")
-    use_sample = st.toggle("Sample data", value=True)
+    live = st.toggle("Live SEC data", value=True)
     tick_list = [t.strip().upper() for t in tickers.replace(",", " ").split() if t.strip()]
 
     if st.button("Fetch & compare", type="primary"):
-        try:
-            if use_sample:
-                facts_map = {t: sample_facts(t) for t in tick_list}
-                frames = {stmt: pd.DataFrame({t: agg.statement(f, stmt) for t, f in facts_map.items()})
-                          for stmt in STATEMENT_TAGS}
-            else:
-                frames = agg.compare_all(tick_list)
-                facts_map = {t: agg.company_facts(t) for t in tick_list}
-        except Exception as exc:  # noqa: BLE001
-            dependency_notice(exc); st.stop()
+        with st.spinner("Fetching XBRL company facts…"):
+            facts_map, live_count = {}, 0
+            for t in tick_list:
+                f, was_live = _load_facts(agg, t, live)
+                facts_map[t] = f
+                live_count += int(was_live)
+        if live_count == len(tick_list) and live_count:
+            st.success(f"🟢 Live SEC EDGAR data for all {live_count} tickers.")
+        elif live_count:
+            st.info(f"🟡 {live_count}/{len(tick_list)} tickers loaded live; the rest use sample data.")
+        else:
+            st.warning("🟡 Sample data (SEC EDGAR unreachable from here).")
+        frames = {stmt: pd.DataFrame({t: agg.statement(f, stmt) for t, f in facts_map.items()})
+                  for stmt in STATEMENT_TAGS}
 
         tabs = st.tabs(list(LABELS.values()) + ["📐 Key Ratios"])
         for tab, key in zip(tabs, STATEMENT_TAGS):

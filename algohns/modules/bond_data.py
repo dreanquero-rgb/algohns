@@ -235,6 +235,10 @@ class BondScreener:
                 "Maturity": b.maturity.isoformat() if b.maturity else None,
                 "Years": round((b.maturity - settlement).days / 365.25, 2) if b.maturity else None,
                 "Curr": b.currency,
+                # Analytics columns are always present (None when not computable)
+                # so downstream sorting/filtering never hits a missing column.
+                "YTM%": None, "NetYTM%": None, "Curr.Yield%": None,
+                "ModDur": None, "Accrued": None,
             }
             # Compute yields only for priced, fixed-coupon bonds with a future maturity.
             if b.price and b.maturity and b.maturity > settlement and b.type in ("govt", "eurobond") and b.coupon is not None:
