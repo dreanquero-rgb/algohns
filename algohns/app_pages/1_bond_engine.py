@@ -95,8 +95,11 @@ with tab_screener:
         "ModDur": st.column_config.NumberColumn("Mod.Dur", format="%.2f"),
         "Years": st.column_config.NumberColumn(format="%.1f"),
     }
-    st.dataframe(view.sort_values("NetYTM%", ascending=False, na_position="last"),
-                 use_container_width=True, hide_index=True, height=430, column_config=col_cfg)
+    # Sort defensively: a live feed with no priced bonds yields no yield column.
+    table = (view.sort_values("NetYTM%", ascending=False, na_position="last")
+             if "NetYTM%" in view.columns else view)
+    st.dataframe(table, use_container_width=True, hide_index=True,
+                 height=430, column_config=col_cfg)
     st.download_button("⬇️ Download CSV", view.to_csv(index=False).encode(),
                        file_name="algohns_bond_screener.csv", mime="text/csv")
     st.caption(f"Tax profile: {TAX_PROFILES[tax_key].name} — {TAX_PROFILES[tax_key].note}")
