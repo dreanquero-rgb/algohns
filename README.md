@@ -85,3 +85,44 @@ node --check public/assets/app.js
 ```
 
 Also checked: clean V11 branding, Alpaca Paper-only UI, stable navigation and real-money lock.
+
+---
+
+## Piattaforma quant Python (`platform/`)
+
+Oltre al Worker Cloudflare descritto sopra, il repository contiene una
+piattaforma Python a 5 moduli sotto `platform/`:
+
+| Modulo | Cosa fa |
+|---|---|
+| 1 — Bond Engine | YTM lordo/netto per BTP, Bund, OAT, Bonos ed Eurobond; duration modificata, convexity; fiscalità IT/DE/FR/ES con distinzione TUIR fra redditi di capitale e redditi diversi |
+| 2 — Alpaca Engine | Esecuzione ordini e ribilanciamento asincrono, con lock paper applicato sull'hostname risolto |
+| 3 — Backtest Suite | Walk-forward strettamente causale; Max Sharpe, Min Variance, Risk Parity, HRP, Black-Litterman |
+| 4 — Supply Chain | Grafo S&P 500 da filing SEC e propagazione shock a due orologi (repricing veloce, rottura fisica lenta) |
+| 5 — SEC Aggregator | XBRL companyfacts normalizzato con catene di fallback sui tag; confronto multi-ticker |
+
+### Avvio rapido
+
+```bash
+cd platform
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env     # SEC_USER_AGENT richiede un contatto reale
+streamlit run app.py
+```
+
+Il Modulo 1 funziona senza credenziali né rete. Il toggle **Dati sintetici**
+rende utilizzabili i moduli 3 e 4 senza chiavi API.
+
+### Test
+
+```bash
+PYTHONPATH=platform python -m pytest platform/tests -q    # 239 test
+```
+
+Architettura, valutazione delle repository esterne e limiti noti:
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+**Denaro reale bloccato** in entrambe le metà: il Worker rifiuta l'esecuzione
+non-paper, e il client Python solleva `LiveTradingBlocked` per qualunque host
+diverso da `paper-api.alpaca.markets`.

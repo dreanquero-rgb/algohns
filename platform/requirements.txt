@@ -1,0 +1,27 @@
+# ---------------------------------------------------------------------------
+# Algohns quant platform — Python requirements
+#
+# Split into tiers on purpose. The core tier is what the maths actually
+# needs; everything below it is optional and the code degrades explicitly
+# (with a message naming the missing package) rather than crashing.
+#
+#   pip install -r requirements.txt              # core + UI
+#   pip install -r requirements.txt -r requirements-optional.txt
+# ---------------------------------------------------------------------------
+
+# --- Core: required. Bond engine, optimisers, metrics, graph. ---
+numpy>=1.26,<3.0
+pandas>=2.1,<3.0
+scipy>=1.11,<2.0
+networkx>=3.2,<4.0
+requests>=2.31,<3.0
+
+# --- UI ---
+streamlit>=1.33,<2.0
+plotly>=5.20,<7.0
+
+# --- Config ---
+python-dotenv>=1.0,<2.0
+
+# --- Tests ---
+pytest>=8.0,<9.0

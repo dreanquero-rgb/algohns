@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------------------
+# Optional integrations. Every module here is imported lazily; without it the
+# platform still runs and tells you what is missing.
+# ---------------------------------------------------------------------------
+
+# Module 1 — cross-validates the native bond maths. Not required: the engine
+# is self-contained and tested against closed-form cases.
+QuantLib>=1.33
+
+# Module 2 — Alpaca paper trading + async execution.
+alpaca-py>=0.21,<1.0
+celery[redis]>=5.3,<6.0
+redis>=5.0,<7.0
+apscheduler>=3.10,<4.0
+
+# Module 3 — market data, and third-party optimiser/metric cross-checks.
+yfinance>=0.2.40
+PyPortfolioOpt>=1.5.5
+ffn>=1.0.0
+
+# Module 4 — filing download, NER and graph rendering.
+sec-edgar-downloader>=5.0
+spacy>=3.7,<4.0
+pyvis>=0.3.2
+# spaCy also needs its English model:
+#   python -m spacy download en_core_web_sm
+
+# Module 5 — faster XBRL parsing for bulk runs.
+lxml>=5.0
