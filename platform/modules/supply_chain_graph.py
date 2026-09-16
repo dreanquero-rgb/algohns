@@ -282,7 +282,11 @@ def extract_relations(
         except (ImportError, OSError) as exc:
             log.info("spaCy non disponibile (%s): uso solo regex.", exc)
 
-    found: dict[tuple[str, Relation], tuple[float, str]] = {}
+    # Keyed on the *normalised* name, not the raw label: spaCy's ORG span
+    # includes a trailing period where the regex span does not, so
+    # "Ibiden Co." and "Ibiden Co" would otherwise both survive and become
+    # two graph nodes for one company.
+    found: dict[tuple[str, Relation], tuple[float, str, str]] = {}
 
     for sentence in _sentences(text):
         if len(sentence) > max_sentence_len or len(sentence) < 20:
@@ -329,11 +333,15 @@ def extract_relations(
             conf = min(conf, 0.99)
             if conf < min_confidence:
                 continue
-            key = (label, relation)
-            if key not in found or found[key][0] < conf:
-                found[key] = (conf, sentence.strip()[:300])
+            key = (norm, relation)
+            prior = found.get(key)
+            if prior is None or prior[0] < conf:
+                found[key] = (conf, sentence.strip()[:300], label)
 
-    return [(name, rel, c, ev) for (name, rel), (c, ev) in found.items()]
+    return [
+        (label, rel, c, ev)
+        for (_, rel), (c, ev, label) in found.items()
+    ]
 
 
 # ------------------------------------------------------------- shock models
@@ -570,6 +578,70 @@ class SupplyChainGraph:
 
     # ----------------------------------------------------------- propagation
 
+    def propagation_step(
+        self,
+        impairment: dict[str, float],
+        buffer_left: dict[str, float],
+        *,
+        transmission: float,
+        recovery_per_tick: float,
+        tick_days: int,
+        clamped: dict[str, float] | None = None,
+        dead: set[str] | None = None,
+    ) -> dict[str, float]:
+        """Advance impairment by one tick. Mutates `buffer_left` in place.
+
+        This is the two-clock physics, factored out so the scenario runner
+        (`propagate_operational`) and the stochastic forward simulation share
+        one implementation rather than drifting apart.
+
+        `clamped` pins nodes at an imposed floor while a shock is active.
+        `dead` marks bankrupt nodes, which stop transmitting: a liquidated
+        supplier delivers nothing, so its customers are cut off rather than
+        merely impaired.
+        """
+        clamped = clamped or {}
+        dead = dead or set()
+
+        pressure: dict[str, float] = {}
+        for ticker in self.g.nodes:
+            node = self.node(ticker)
+            raw = 0.0
+            for supplier in self.g.predecessors(ticker):
+                edge: SupplyEdge = self.g[supplier][ticker]["data"]
+                # A bankrupt supplier supplies nothing: full dependence lost.
+                upstream = 1.0 if supplier in dead else impairment.get(supplier, 0.0)
+                raw += upstream * edge.dependence
+            pressure[ticker] = min(
+                1.0, raw * transmission * (1.0 - node.substitutability)
+            )
+
+        nxt: dict[str, float] = {}
+        for ticker in self.g.nodes:
+            if ticker in dead:
+                nxt[ticker] = 1.0
+                continue
+            p = pressure[ticker]
+            current = impairment.get(ticker, 0.0)
+
+            if ticker in clamped:
+                nxt[ticker] = max(clamped[ticker], p)
+                continue
+
+            if p > 1e-9 and buffer_left.get(ticker, 0.0) > 0:
+                # Inventory absorbs this tick, depleting in proportion to how
+                # hard the pressure is.
+                buffer_left[ticker] = max(
+                    0.0, buffer_left[ticker] - tick_days * p
+                )
+                nxt[ticker] = max(0.0, current - recovery_per_tick)
+                continue
+
+            target = max(p, 0.0)
+            moved = current + 0.5 * (target - current)
+            nxt[ticker] = max(0.0, min(1.0, moved - recovery_per_tick))
+        return nxt
+
     def propagate_operational(self, scenario: ShockScenario) -> PropagationResult:
         """Slow channel: physical disruption through inventory buffers.
 
@@ -616,44 +688,13 @@ class SupplyChainGraph:
         }
 
         for tick in range(1, scenario.n_ticks + 1):
-            pressure: dict[str, float] = {}
-            for ticker in self.g.nodes:
-                node = self.node(ticker)
-                raw = 0.0
-                for supplier in self.g.predecessors(ticker):
-                    edge: SupplyEdge = self.g[supplier][ticker]["data"]
-                    raw += impairment[supplier] * edge.dependence
-                pressure[ticker] = min(
-                    1.0,
-                    raw * scenario.transmission * (1.0 - node.substitutability),
-                )
-
-            nxt: dict[str, float] = {}
-            for ticker in self.g.nodes:
-                p = pressure[ticker]
-                # Seeds stay clamped at their imposed level while the shock runs.
-                if ticker in live_seeds:
-                    nxt[ticker] = max(live_seeds[ticker], p)
-                    continue
-
-                if p > 1e-9 and buffer_left[ticker] > 0:
-                    # Inventory absorbs this tick; deplete proportionally to
-                    # how hard the pressure is.
-                    buffer_left[ticker] = max(
-                        0.0, buffer_left[ticker] - scenario.tick_days * p
-                    )
-                    nxt[ticker] = max(
-                        0.0, impairment[ticker] - scenario.recovery_per_tick
-                    )
-                    continue
-
-                # Buffer gone: converge toward pressure, net of recovery.
-                target = max(p, 0.0)
-                current = impairment[ticker]
-                moved = current + 0.5 * (target - current)
-                nxt[ticker] = max(0.0, min(1.0, moved - scenario.recovery_per_tick))
-
-            impairment = nxt
+            impairment = self.propagation_step(
+                impairment, buffer_left,
+                transmission=scenario.transmission,
+                recovery_per_tick=scenario.recovery_per_tick,
+                tick_days=scenario.tick_days,
+                clamped=live_seeds,
+            )
             trajectory.append(dict(impairment))
             for ticker, val in impairment.items():
                 if val > peak[ticker] + 1e-12:

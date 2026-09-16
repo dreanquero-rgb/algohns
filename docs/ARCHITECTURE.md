@@ -222,13 +222,74 @@ già per questo), il Worker serve, il browser renderizza e fa girare i tick.
 
 ---
 
-## Fase 2 — simulatore di scenari
+## Sezione 6 — World Simulation
 
-Il grafo del Modulo 4 **è** la rete di contagio: un simulatore temporale non
-richiede un motore nuovo, gli serve un renderer. `to_json()`, `cascade_order()`
-e `onset_days` esistono già come superficie per quel livello.
+Simulazione stocastica forward-looking sul grafo reale, con un globo come
+superficie di visualizzazione. Vive in due metà, come previsto:
 
-Prima del renderer serve però il **cancello di credibilità**: un harness che
+| Percorso | Ruolo |
+|---|---|
+| `platform/modules/world_universe.py` | 54 aziende reali, coordinate della sede **operativa**, geografia dei ricavi, 59 archi di fornitura |
+| `platform/modules/world_events.py` | 49 template di evento, arrivi Poisson per intensità annua |
+| `platform/modules/world_forward.py` | Modello a fattori + fisica a due orologi + hazard di fallimento |
+| `platform/modules/world_export.py` | Export compatto per il browser |
+| `public/world/index.html` | Globo ortografico, motore replicato in JS, servito dal Worker |
+| `platform/pages/6_World_Simulation.py` | Globo incorporato + analisi multi-seed in Python |
+
+### La scelta che porta il peso: il mondo è indipendente dal portafoglio
+
+Niente nel mondo simulato dipende da cosa detieni. Tre conseguenze:
+
+1. il portafoglio si modifica **durante** la simulazione e il P&L si ricalcola
+   subito, perché la valutazione è una riduzione su un mondo già calcolato;
+2. due portafogli si confrontano sullo **stesso** percorso — l'unico confronto
+   che isola il portafoglio invece della fortuna;
+3. la matematica pesante precalcola in Python e il browser fa solo il replay,
+   che è ciò che tiene il globo a frame rate.
+
+### Due orologi, di nuovo — ma nel P&L
+
+Gli shock macro sono **distribuiti** sulla durata dell'evento; quelli
+societari sono **salti** del giorno. Un earnings miss gappa il titolo in una
+seduta; il -17% di una recessione si materializza in trimestri. Applicare
+anche i macro come salti giornalieri componeva moltiplicativamente in una
+coda destra implausibile: una prima run dava il 90° percentile dei rendimenti
+a 5 anni a **+209%**.
+
+### Il catalogo non è neutrale rispetto al drift
+
+I disastri sono più numerosi dei colpi di fortuna, quindi sommati sulle
+intensità gli eventi portavano **-8,68%/anno** di rendimento atteso. Lasciato
+non compensato, ogni simulazione diventava una spirale discendente: un test
+forward-looking che non si può vincere non insegna nulla.
+
+`expected_event_market_drift()` calcola quel contributo **dal catalogo** e il
+simulatore lo sottrae, così `market_drift` è l'attesa incondizionata e la
+correzione si ri-deriva da sola se domani aggiungi altri template.
+
+### Calibrazione verificata, non dichiarata
+
+Su 40-150 seed: volatilità realizzata **16,0%** contro il parametro 16%;
+mediana a 5 anni **+32,8%** contro le **+32,1%** attese dal drift
+*geometrico* (7% − 16%²/2). Confrontare con il drift *aritmetico* composto
+(+40,3%) faceva sembrare rotta una calibrazione corretta — il benchmark era
+sbagliato, non il modello. Fallimenti ~1,5x il tasso base, coerente con
+large cap sotto stress.
+
+### Limite dichiarato: due implementazioni
+
+Il motore esiste in Python (riferimento, testato, 59 test) e in JavaScript
+(anteprima interattiva nel browser). Due implementazioni dello stesso modello
+divergono. Riconciliarle — idealmente facendo leggere al JS un percorso
+*golden* prodotto da Python in CI — è lavoro da fare, e finché non esiste i
+numeri nel browser vanno letti come indicativi.
+
+---
+
+## Fase 2 — validazione storica
+
+Il simulatore esiste (Sezione 6). Quello che ancora manca è il
+**cancello di credibilità**: un harness che
 rigiochi shock storici noti (COVID feb-mar 2020, rate shock 2022, Tōhoku 2011,
 carenza chip 2021) e confronti drawdown previsto e realizzato per settore. Un
 motore di scenario che non riproduce uno shock noto sta animando un generatore
@@ -261,11 +322,11 @@ Il Modulo 1 non richiede credenziali né rete: è matematica pura. Il toggle
 ### Test
 
 ```bash
-PYTHONPATH=platform python -m pytest platform/tests -q    # 239 test
+PYTHONPATH=platform python -m pytest platform/tests -q    # 301 test
 ```
 
 Copertura: 43 bond engine · 35 Alpaca · 62 backtest/ottimizzatori · 54 supply
-chain · 36 SEC · 9 smoke UI.
+chain · 36 SEC · 59 world simulation · 12 smoke UI.
 
 ### Worker asincroni
 
@@ -299,3 +360,6 @@ Dichiarati perché contano più delle feature:
   internamente coerente e testata, ma non ancora confrontata con episodi
   reali. È il lavoro di fase 2, e finché non è fatto i numeri di secondo
   ordine sono indicativi.
+- **Il globo non è una mappa.** Le coste sono poligoni volutamente a bassa
+  risoluzione: orientano lo sguardo senza millantare una precisione
+  cartografica che la simulazione non ha.

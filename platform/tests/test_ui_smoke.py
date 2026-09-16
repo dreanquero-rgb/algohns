@@ -44,8 +44,9 @@ def test_page_runs(page: Path):
     assert app.title, f"{page.name} non ha prodotto un titolo"
 
 
-def test_all_five_modules_have_a_page():
-    assert len(PAGES) == 5, f"attese 5 pagine, trovate {[p.name for p in PAGES]}"
+def test_every_module_has_a_page():
+    """Five modules plus the world simulation."""
+    assert len(PAGES) == 6, f"attese 6 pagine, trovate {[p.name for p in PAGES]}"
 
 
 def test_bond_page_computes_a_yield():
@@ -66,3 +67,18 @@ def test_supply_chain_page_propagates():
     assert "Moltiplicatore di contagio" in labels
     mult = next(m for m in app.metric if m.label == "Moltiplicatore di contagio")
     assert float(mult.value.rstrip("x")) > 1.0
+
+
+def test_world_simulation_page_embeds_globe():
+    """The page must find the built globe, not just render its chrome."""
+    app = _run(PLATFORM / "pages" / "6_World_Simulation.py")
+    _assert_clean(app, "world simulation page")
+    # The error branch fires when public/world/index.html is missing.
+    assert not [e for e in app.error if "Globo non trovato" in e.value]
+
+
+def test_world_simulation_page_reports_event_drift():
+    app = _run(PLATFORM / "pages" / "6_World_Simulation.py")
+    _assert_clean(app, "world simulation page")
+    labels = [m.label for m in app.metric]
+    assert any("catalogo" in l.lower() for l in labels)

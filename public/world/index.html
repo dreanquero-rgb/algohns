@@ -1,0 +1,1400 @@
+<title>Algohns World Simulation</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Committed single-theme instrument surface: a glowing contagion globe
+     does not survive a white ground, so every colour is painted explicitly
+     rather than inherited from the host theme. */
+  :root {
+    --ground:      #0b1220;
+    --surface:     #131c2e;
+    --raised:      #1b2740;
+    --line:        #22304c;
+    --line-soft:   #1a2439;
+    --ink:         #e6eaf2;
+    --ink-dim:     #8b9ab5;
+    --ink-faint:   #5d6c87;
+    --accent:      #4c9aff;
+    --accent-deep: #2a5fa8;
+    --ok:          #5bb98c;
+    --warn:        #e8a33d;
+    --bad:         #d95f4b;
+    --crit:        #8e2f3f;
+    --radius:      3px;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    --cond: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); font-size: 13px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 { font-family: var(--cond); font-weight: 600; margin: 0; text-wrap: balance; }
+  button, input, select { font: inherit; color: inherit; }
+
+  .eyebrow {
+    font-family: var(--cond); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
+  }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---------- shell ---------- */
+  #shell {
+    display: grid; height: 100%;
+    grid-template-columns: 286px minmax(0, 1fr) 320px;
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "head head head" "rail stage feed";
+  }
+  #head {
+    grid-area: head; display: flex; align-items: baseline; gap: 14px;
+    flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  #head h1 { font-size: 15px; letter-spacing: 0.02em; }
+  #head .tag {
+    font-family: var(--mono); font-size: 10px; color: var(--warn);
+    border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+    padding: 1px 6px; border-radius: var(--radius);
+  }
+  #head .spacer { flex: 1 1 auto; }
+
+  .panel {
+    background: var(--surface); overflow-y: auto; overflow-x: hidden;
+    display: flex; flex-direction: column;
+  }
+  #rail { grid-area: rail; border-right: 1px solid var(--line); }
+  #feed { grid-area: feed; border-left: 1px solid var(--line); }
+  #stage {
+    grid-area: stage; display: flex; flex-direction: column;
+    min-width: 0; min-height: 0; background: var(--ground);
+  }
+
+  .block { padding: 12px 14px; border-bottom: 1px solid var(--line-soft); }
+  .block > .eyebrow { display: block; margin-bottom: 8px; }
+
+  /* ---------- controls ---------- */
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row + .row { margin-top: 8px; }
+  label.field { display: block; margin-bottom: 8px; }
+  label.field > span {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 11px; color: var(--ink-dim); margin-bottom: 3px;
+  }
+  label.field > span b { font-family: var(--mono); color: var(--ink); font-weight: 500; }
+
+  input[type="range"] {
+    width: 100%; appearance: none; height: 18px; background: none; margin: 0;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 2px; background: var(--line); border-radius: 2px;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none; width: 11px; height: 11px; margin-top: -4.5px;
+    border-radius: 50%; background: var(--accent); border: none; cursor: pointer;
+  }
+  input[type="range"]::-moz-range-track { height: 2px; background: var(--line); }
+  input[type="range"]::-moz-range-thumb {
+    width: 11px; height: 11px; border: none; border-radius: 50%;
+    background: var(--accent); cursor: pointer;
+  }
+
+  select, input[type="text"] {
+    width: 100%; background: var(--ground); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 5px 7px; font-size: 12px;
+  }
+  select:focus-visible, input:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+
+  button {
+    background: var(--raised); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 5px 10px; cursor: pointer;
+    font-size: 12px; transition: background .12s, border-color .12s;
+  }
+  button:hover:not(:disabled) { background: var(--accent-deep); border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary {
+    background: var(--accent-deep); border-color: var(--accent); color: #fff;
+    font-weight: 500;
+  }
+  button.ghost { background: none; }
+  button.danger:hover { background: var(--crit); border-color: var(--bad); }
+  .btn-row { display: flex; gap: 6px; }
+  .btn-row > button { flex: 1 1 auto; }
+
+  /* ---------- holdings ---------- */
+  #holdings { display: flex; flex-direction: column; gap: 1px; }
+  .holding {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 6px;
+    align-items: center; padding: 4px 0;
+  }
+  .holding .tk {
+    font-family: var(--mono); font-size: 11px; font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .holding .wt {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-dim);
+    width: 42px; text-align: right;
+  }
+  .holding .px { font-family: var(--mono); font-size: 10px; width: 52px; text-align: right; }
+  .holding.dead .tk { color: var(--bad); text-decoration: line-through; }
+  .holding input[type="range"] { grid-column: 1 / -1; height: 12px; }
+  .holding input[type="range"]::-webkit-slider-thumb { width: 9px; height: 9px; margin-top: -3.5px; }
+  .drop { color: var(--ink-faint); cursor: pointer; background: none; border: none; padding: 0 2px; }
+  .drop:hover { color: var(--bad); background: none; }
+
+  #weightWarn { font-size: 11px; color: var(--warn); margin-top: 6px; }
+
+  /* ---------- stage ---------- */
+  #globeWrap { position: relative; flex: 1 1 auto; min-height: 260px; }
+  #globe { display: block; width: 100%; height: 100%; cursor: grab; }
+  #globe.dragging { cursor: grabbing; }
+  #hover {
+    position: absolute; pointer-events: none; z-index: 3;
+    background: color-mix(in srgb, var(--raised) 94%, transparent);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 6px 8px; font-size: 11px; max-width: 220px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.5);
+  }
+  #hover[hidden] { display: none !important; }
+  #hover .hn { font-family: var(--cond); font-weight: 600; font-size: 12px; }
+  #hover .hr { display: flex; justify-content: space-between; gap: 10px; color: var(--ink-dim); }
+  #hover .hr b { font-family: var(--mono); color: var(--ink); font-weight: 500; }
+
+  #legend {
+    position: absolute; left: 12px; bottom: 12px; z-index: 2;
+    display: flex; flex-direction: column; gap: 3px;
+    font-size: 10px; color: var(--ink-faint);
+  }
+  #legend .lr { display: flex; align-items: center; gap: 5px; }
+  #legend .sw { width: 16px; height: 2px; border-radius: 1px; }
+  #legend .dot { width: 7px; height: 7px; border-radius: 50%; }
+
+  #clock {
+    position: absolute; right: 12px; top: 12px; z-index: 2; text-align: right;
+  }
+  #clock .day { font-family: var(--mono); font-size: 22px; font-weight: 500; }
+  #clock .sub { font-size: 10px; color: var(--ink-faint); }
+
+  /* ---------- timeline + stats ---------- */
+  #deck { border-top: 1px solid var(--line); background: var(--surface); }
+  #transport { display: flex; align-items: center; gap: 10px; padding: 8px 14px; }
+  #scrub { flex: 1 1 auto; }
+  #stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    border-top: 1px solid var(--line-soft);
+  }
+  .stat { padding: 7px 14px; border-right: 1px solid var(--line-soft); }
+  .stat:last-child { border-right: none; }
+  .stat .k { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); }
+  .stat .v { font-family: var(--mono); font-size: 15px; font-weight: 500; }
+  .stat .v.pos { color: var(--ok); }
+  .stat .v.neg { color: var(--bad); }
+  #spark { display: block; width: 100%; height: 54px; border-top: 1px solid var(--line-soft); }
+
+  /* ---------- feed ---------- */
+  #feedHead { padding: 10px 14px 8px; border-bottom: 1px solid var(--line-soft); }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 7px; }
+  .chip {
+    font-size: 10px; padding: 2px 7px; border-radius: 9px; cursor: pointer;
+    border: 1px solid var(--line); background: none; color: var(--ink-dim);
+  }
+  .chip[aria-pressed="true"] {
+    background: var(--accent-deep); border-color: var(--accent); color: #fff;
+  }
+  #news { flex: 1 1 auto; overflow-y: auto; }
+  .item {
+    padding: 8px 14px; border-bottom: 1px solid var(--line-soft);
+    display: grid; grid-template-columns: 3px 1fr; gap: 9px;
+  }
+  .item .stripe { border-radius: 2px; background: var(--ink-faint); }
+  .item.fav .stripe { background: var(--ok); }
+  .item.sev-medio .stripe { background: var(--warn); }
+  .item.sev-alto .stripe { background: var(--bad); }
+  .item.sev-estremo .stripe { background: var(--crit); }
+  .item .meta {
+    display: flex; gap: 7px; align-items: baseline; font-size: 9px;
+    color: var(--ink-faint); text-transform: uppercase; letter-spacing: .08em;
+    margin-bottom: 2px; flex-wrap: wrap;
+  }
+  .item .meta .rel { color: var(--accent); }
+  .item .meta .rel.mondo { color: var(--ink-faint); }
+  .item .hl { font-size: 12px; line-height: 1.35; }
+  .item .tgt { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); margin-top: 2px; }
+  #news .empty { padding: 16px 14px; color: var(--ink-faint); font-size: 12px; }
+
+  .note { font-size: 11px; color: var(--ink-faint); line-height: 1.45; }
+  .note + .note { margin-top: 6px; }
+  details summary { cursor: pointer; font-size: 11px; color: var(--ink-dim); }
+  details[open] summary { margin-bottom: 6px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+
+  /* ---------- narrow ---------- */
+  @media (max-width: 1080px) {
+    #shell {
+      grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto auto;
+      grid-template-areas: "head" "stage" "rail" "feed"; height: auto;
+    }
+    #rail, #feed { border: none; border-top: 1px solid var(--line); }
+    #globeWrap { height: 60vh; min-height: 320px; }
+    #feed { max-height: none; }
+    #news { max-height: 420px; }
+  }
+  @media (max-width: 420px) {
+    .block { padding: 12px 16px; }
+    .stat { padding: 7px 16px; }
+    #clock .day { font-size: 18px; }
+  }
+</style>
+
+<div id="shell">
+  <header id="head">
+    <h1>Algohns World Simulation</h1>
+    <span class="tag">non validato · test forward-looking</span>
+    <span class="spacer"></span>
+    <span class="eyebrow" id="headMeta"></span>
+  </header>
+
+  <!-- ============================ LEFT RAIL ============================ -->
+  <aside id="rail" class="panel">
+    <div class="block">
+      <span class="eyebrow">Parametri del mondo</span>
+      <label class="field" for="horizon">
+        <span>Orizzonte <b id="horizonVal">5 anni</b></span>
+        <input type="range" id="horizon" min="1" max="10" step="1" value="5">
+      </label>
+      <label class="field" for="intensity">
+        <span>Turbolenza <b id="intensityVal">1.0×</b></span>
+        <input type="range" id="intensity" min="0.2" max="3" step="0.1" value="1">
+      </label>
+      <label class="field" for="seed">
+        <span>Seed <b id="seedVal">2026</b></span>
+        <input type="range" id="seed" min="1" max="9999" step="1" value="2026">
+      </label>
+      <div class="btn-row">
+        <button id="reroll" class="primary" type="button">Nuovo mondo</button>
+        <button id="restart" class="ghost" type="button">Riavvia</button>
+      </div>
+      <p class="note" style="margin-top:8px">
+        Il mondo non dipende dal portafoglio: lo stesso seed produce la stessa
+        storia, così due portafogli si confrontano sullo <em>stesso</em> percorso.
+      </p>
+    </div>
+
+    <div class="block">
+      <span class="eyebrow">Portafoglio</span>
+      <div class="row">
+        <select id="addPick" aria-label="Aggiungi titolo"></select>
+        <button id="addBtn" type="button">+</button>
+      </div>
+      <div class="btn-row" style="margin-top:8px">
+        <button id="normalize" class="ghost" type="button">Normalizza</button>
+        <button id="equalise" class="ghost" type="button">Equipesa</button>
+        <button id="clearPf" class="ghost danger" type="button">Svuota</button>
+      </div>
+      <div id="weightWarn"></div>
+      <div id="holdings" style="margin-top:10px"></div>
+    </div>
+
+    <div class="block">
+      <details>
+        <summary>Calibrazione e provenienza</summary>
+        <p class="note" id="calibNote"></p>
+        <p class="note" id="provNote"></p>
+        <p class="note" id="validNote"></p>
+      </details>
+    </div>
+  </aside>
+
+  <!-- ============================== STAGE ============================== -->
+  <main id="stage">
+    <div id="globeWrap">
+      <canvas id="globe"></canvas>
+      <div id="clock">
+        <div class="day num" id="clockDay">giorno 0</div>
+        <div class="sub" id="clockSub">anno 0 · 0 eventi attivi</div>
+      </div>
+      <div id="legend">
+        <div class="lr"><span class="dot" style="background:var(--accent)"></span> operativa</div>
+        <div class="lr"><span class="dot" style="background:var(--warn)"></span> sotto stress</div>
+        <div class="lr"><span class="dot" style="background:var(--crit)"></span> compromessa</div>
+        <div class="lr"><span class="sw" style="background:var(--ok)"></span> fornitura dichiarata</div>
+        <div class="lr"><span class="sw" style="background:var(--ink-faint)"></span> inferita</div>
+      </div>
+      <div id="hover" hidden></div>
+    </div>
+
+    <div id="deck">
+      <div id="transport">
+        <button id="play" class="primary" type="button">Avvia</button>
+        <input type="range" id="scrub" min="0" max="100" step="1" value="0" aria-label="Timeline">
+        <select id="speed" aria-label="Velocità" style="width:auto">
+          <option value="1">1×</option>
+          <option value="3" selected>3×</option>
+          <option value="8">8×</option>
+          <option value="20">20×</option>
+        </select>
+      </div>
+      <canvas id="spark"></canvas>
+      <div id="stats">
+        <div class="stat"><div class="k">Portafoglio</div><div class="v num" id="sPf">—</div></div>
+        <div class="stat"><div class="k">Mercato</div><div class="v num" id="sMkt">—</div></div>
+        <div class="stat"><div class="k">Max drawdown</div><div class="v num" id="sDd">—</div></div>
+        <div class="stat"><div class="k">Fallimenti</div><div class="v num" id="sBk">—</div></div>
+        <div class="stat"><div class="k">Sotto stress</div><div class="v num" id="sImp">—</div></div>
+        <div class="stat"><div class="k">Fuori copertura</div><div class="v num" id="sUnc">—</div></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- =============================== FEED ============================== -->
+  <aside id="feed" class="panel">
+    <div id="feedHead">
+      <span class="eyebrow">Notiziario mondiale</span>
+      <p class="note" style="margin-top:4px">
+        Tutto ciò che accade nel mondo, non solo ciò che tocca il portafoglio.
+      </p>
+      <div class="chips" role="group" aria-label="Filtro rilevanza">
+        <button class="chip" data-rel="all" aria-pressed="true" type="button">Tutto</button>
+        <button class="chip" data-rel="diretta" aria-pressed="false" type="button">Diretta</button>
+        <button class="chip" data-rel="indiretta" aria-pressed="false" type="button">Indiretta</button>
+        <button class="chip" data-rel="mondo" aria-pressed="false" type="button">Mondo</button>
+      </div>
+    </div>
+    <div id="news"></div>
+  </aside>
+</div>
+
+<script>
+"use strict";
+/* ===================================================================== */
+/*  Algohns World Simulation — browser engine + orthographic globe        */
+/*                                                                        */
+/*  Mirrors platform/modules/world_forward.py. Python is the reference    */
+/*  implementation and the tested one; this copy exists so the user can   */
+/*  re-roll a world without a round trip. The numbers here are            */
+/*  indicative — reconciling the two against a golden path is follow-up.  */
+/* ===================================================================== */
+
+const WORLD = {"meta":{"generator":"algohns-world-simulation/static","observedEdgeShare":0.2881,"tradingDaysPerYear":252,"eventDriftCompensation":-0.08675,"calibration":{"marketDrift":0.07,"marketVol":0.16,"idiosyncraticVol":0.24,"baseHazard":0.004,"maxHazardMultiplier":4.0,"transmission":0.85,"recoveryPerTick":0.03,"propagationTickDays":7,"impairmentPriceBeta":-0.55},"provenance":"Dataset curato a mano: sedi operative e forma della geografia dei ricavi da conoscenza pubblica; le percentuali di dipendenza sono assunzioni di modello, non dati dichiarati.","notValidated":"Il modello di propagazione non e' stato confrontato con episodi storici. Serve per confronti forward-looking fra portafogli sullo stesso mondo, non come previsione.","referenceImplementation":"Python e' l'implementazione di riferimento e testata; questa copia nel browser e' l'anteprima interattiva."},"countries":[{"code":"US","name":"United States","lat":38.9,"lon":-77.04,"region":"Americas"},{"code":"CA","name":"Canada","lat":43.65,"lon":-79.38,"region":"Americas"},{"code":"MX","name":"Mexico","lat":19.43,"lon":-99.13,"region":"Americas"},{"code":"BR","name":"Brazil","lat":-23.55,"lon":-46.63,"region":"Americas"},{"code":"CL","name":"Chile","lat":-33.45,"lon":-70.67,"region":"Americas"},{"code":"GB","name":"United Kingdom","lat":51.51,"lon":-0.13,"region":"Europe"},{"code":"DE","name":"Germany","lat":52.52,"lon":13.41,"region":"Europe"},{"code":"FR","name":"France","lat":48.86,"lon":2.35,"region":"Europe"},{"code":"IT","name":"Italy","lat":45.46,"lon":9.19,"region":"Europe"},{"code":"ES","name":"Spain","lat":40.42,"lon":-3.7,"region":"Europe"},{"code":"NL","name":"Netherlands","lat":52.37,"lon":4.9,"region":"Europe"},{"code":"CH","name":"Switzerland","lat":47.38,"lon":8.54,"region":"Europe"},{"code":"IE","name":"Ireland","lat":53.35,"lon":-6.26,"region":"Europe"},{"code":"DK","name":"Denmark","lat":55.68,"lon":12.57,"region":"Europe"},{"code":"SE","name":"Sweden","lat":59.33,"lon":18.07,"region":"Europe"},{"code":"NO","name":"Norway","lat":59.91,"lon":10.75,"region":"Europe"},{"code":"FI","name":"Finland","lat":60.17,"lon":24.94,"region":"Europe"},{"code":"PL","name":"Poland","lat":52.23,"lon":21.01,"region":"Europe"},{"code":"TR","name":"Turkey","lat":41.01,"lon":28.98,"region":"EMEA"},{"code":"IL","name":"Israel","lat":32.09,"lon":34.78,"region":"EMEA"},{"code":"SA","name":"Saudi Arabia","lat":26.29,"lon":50.15,"region":"EMEA"},{"code":"AE","name":"UAE","lat":24.45,"lon":54.38,"region":"EMEA"},{"code":"ZA","name":"South Africa","lat":-26.2,"lon":28.04,"region":"EMEA"},{"code":"CN","name":"China","lat":31.23,"lon":121.47,"region":"Asia"},{"code":"TW","name":"Taiwan","lat":24.8,"lon":120.97,"region":"Asia"},{"code":"JP","name":"Japan","lat":35.68,"lon":139.69,"region":"Asia"},{"code":"KR","name":"South Korea","lat":37.57,"lon":126.98,"region":"Asia"},{"code":"IN","name":"India","lat":12.97,"lon":77.59,"region":"Asia"},{"code":"SG","name":"Singapore","lat":1.35,"lon":103.82,"region":"Asia"},{"code":"VN","name":"Vietnam","lat":21.03,"lon":105.85,"region":"Asia"},{"code":"TH","name":"Thailand","lat":13.76,"lon":100.5,"region":"Asia"},{"code":"MY","name":"Malaysia","lat":3.14,"lon":101.69,"region":"Asia"},{"code":"ID","name":"Indonesia","lat":-6.21,"lon":106.85,"region":"Asia"},{"code":"PH","name":"Philippines","lat":14.6,"lon":120.98,"region":"Asia"},{"code":"AU","name":"Australia","lat":-33.87,"lon":151.21,"region":"Asia"},{"code":"EU","name":"Europe (aggregate)","lat":50.85,"lon":4.35,"region":"Europe"},{"code":"ROW","name":"Rest of World","lat":0.0,"lon":20.0,"region":"Other"}],"sectorProfile":{"Semis":{"drift":0.045,"vol":0.2},"Semis Equipment":{"drift":0.04,"vol":0.19},"Software":{"drift":0.035,"vol":0.14},"Comm. Services":{"drift":0.025,"vol":0.14},"Hardware":{"drift":0.02,"vol":0.15},"Contract Mfg":{"drift":0.005,"vol":0.16},"Cons. Discretionary":{"drift":0.015,"vol":0.16},"Cons. Staples":{"drift":-0.005,"vol":0.07},"Health Care":{"drift":0.01,"vol":0.1},"Financials":{"drift":0.005,"vol":0.13},"Energy":{"drift":0.0,"vol":0.19},"Materials":{"drift":0.0,"vol":0.16},"Industrials":{"drift":0.01,"vol":0.12},"Auto Components":{"drift":0.0,"vol":0.15},"Utilities":{"drift":-0.01,"vol":0.08},"Real Estate":{"drift":-0.005,"vol":0.12}},"chokepoints":{"Canale di Suez":["MAERSK"],"Stretto di Hormuz":["2222.SR","XOM","SHEL"],"Canale di Panama":["MAERSK","UNP"],"Stretto di Taiwan":["TSM","2317.TW"],"Stretto di Malacca":["MAERSK","2222.SR"],"Mar Rosso":["MAERSK"]},"nodes":[{"id":"ASML","name":"ASML Holding","sector":"Semis Equipment","domicile":"NL","lat":51.42,"lon":5.4,"cap":300000000000.0,"beta":1.45,"inv":0,"sub":0.02,"geo":{"TW":0.38,"CN":0.27,"KR":0.17,"US":0.13,"ROW":0.05},"primaryCountry":"TW","systemic":0.9402},{"id":"TSM","name":"Taiwan Semiconductor","sector":"Semis","domicile":"TW","lat":24.8,"lon":120.97,"cap":750000000000.0,"beta":1.3,"inv":0,"sub":0.05,"geo":{"US":0.68,"CN":0.11,"TW":0.09,"JP":0.06,"ROW":0.06},"primaryCountry":"US","systemic":1.0},{"id":"005930.KS","name":"Samsung Electronics","sector":"Semis","domicile":"KR","lat":37.24,"lon":127.08,"cap":360000000000.0,"beta":1.1,"inv":30,"sub":0.2,"geo":{"KR":0.14,"US":0.3,"CN":0.2,"EU":0.15,"ROW":0.21},"primaryCountry":"US","systemic":0.836},{"id":"NVDA","name":"NVIDIA","sector":"Semis","domicile":"US","lat":37.35,"lon":-121.95,"cap":3300000000000.0,"beta":1.7,"inv":60,"sub":0.1,"geo":{"US":0.47,"TW":0.21,"CN":0.17,"SG":0.1,"ROW":0.05},"primaryCountry":"US","systemic":0.9101},{"id":"AMD","name":"Advanced Micro Devices","sector":"Semis","domicile":"US","lat":37.38,"lon":-121.98,"cap":260000000000.0,"beta":1.65,"inv":50,"sub":0.15,"geo":{"US":0.34,"CN":0.24,"TW":0.16,"JP":0.08,"ROW":0.18},"primaryCountry":"US","systemic":0.836},{"id":"INTC","name":"Intel","sector":"Semis","domicile":"US","lat":45.53,"lon":-122.94,"cap":100000000000.0,"beta":1.25,"inv":90,"sub":0.25,"geo":{"US":0.27,"CN":0.27,"TW":0.19,"SG":0.1,"ROW":0.17},"primaryCountry":"US","systemic":0.838},{"id":"AVGO","name":"Broadcom","sector":"Semis","domicile":"US","lat":37.41,"lon":-121.94,"cap":800000000000.0,"beta":1.35,"inv":55,"sub":0.18,"geo":{"US":0.33,"CN":0.32,"SG":0.12,"TW":0.08,"ROW":0.15},"primaryCountry":"US","systemic":0.8339},{"id":"AMAT","name":"Applied Materials","sector":"Semis Equipment","domicile":"US","lat":37.39,"lon":-121.98,"cap":160000000000.0,"beta":1.5,"inv":40,"sub":0.12,"geo":{"TW":0.26,"CN":0.29,"KR":0.18,"US":0.14,"ROW":0.13},"primaryCountry":"CN","systemic":0.8628},{"id":"2317.TW","name":"Hon Hai (Foxconn)","sector":"Contract Mfg","domicile":"TW","lat":24.99,"lon":121.46,"cap":60000000000.0,"beta":1.15,"inv":20,"sub":0.22,"geo":{"US":0.52,"CN":0.22,"TW":0.08,"ROW":0.18},"primaryCountry":"US","systemic":0.8627},{"id":"AAPL","name":"Apple","sector":"Hardware","domicile":"US","lat":37.33,"lon":-122.03,"cap":3400000000000.0,"beta":1.2,"inv":35,"sub":0.25,"geo":{"US":0.42,"CN":0.19,"EU":0.25,"JP":0.07,"ROW":0.07},"primaryCountry":"US","systemic":0.8236},{"id":"DELL","name":"Dell Technologies","sector":"Hardware","domicile":"US","lat":30.51,"lon":-97.67,"cap":80000000000.0,"beta":1.1,"inv":25,"sub":0.35,"geo":{"US":0.62,"EU":0.22,"CN":0.06,"ROW":0.1},"primaryCountry":"US","systemic":0.8236},{"id":"MSFT","name":"Microsoft","sector":"Software","domicile":"US","lat":47.64,"lon":-122.13,"cap":3100000000000.0,"beta":0.92,"inv":120,"sub":0.6,"geo":{"US":0.5,"EU":0.26,"JP":0.05,"ROW":0.19},"primaryCountry":"US","systemic":0.8236},{"id":"GOOGL","name":"Alphabet","sector":"Comm. Services","domicile":"US","lat":37.42,"lon":-122.08,"cap":2200000000000.0,"beta":1.05,"inv":150,"sub":0.65,"geo":{"US":0.47,"EU":0.29,"ROW":0.24},"primaryCountry":"US","systemic":0.8236},{"id":"AMZN","name":"Amazon","sector":"Cons. Discretionary","domicile":"US","lat":47.62,"lon":-122.34,"cap":2000000000000.0,"beta":1.18,"inv":40,"sub":0.45,"geo":{"US":0.69,"DE":0.07,"GB":0.07,"JP":0.05,"ROW":0.12},"primaryCountry":"US","systemic":0.8236},{"id":"TSLA","name":"Tesla","sector":"Cons. Discretionary","domicile":"US","lat":30.22,"lon":-97.62,"cap":900000000000.0,"beta":2.05,"inv":18,"sub":0.2,"geo":{"US":0.47,"CN":0.22,"EU":0.19,"ROW":0.12},"primaryCountry":"US","systemic":0.8236},{"id":"TM","name":"Toyota Motor","sector":"Cons. Discretionary","domicile":"JP","lat":35.08,"lon":137.16,"cap":260000000000.0,"beta":0.85,"inv":15,"sub":0.25,"geo":{"JP":0.25,"US":0.32,"EU":0.12,"CN":0.1,"ROW":0.21},"primaryCountry":"US","systemic":0.8236},{"id":"VOW3.DE","name":"Volkswagen","sector":"Cons. Discretionary","domicile":"DE","lat":52.42,"lon":10.79,"cap":60000000000.0,"beta":1.25,"inv":16,"sub":0.28,"geo":{"EU":0.42,"CN":0.3,"US":0.14,"ROW":0.14},"primaryCountry":"EU","systemic":0.8236},{"id":"BOSCH","name":"Robert Bosch","sector":"Auto Components","domicile":"DE","lat":48.78,"lon":9.18,"cap":50000000000.0,"beta":1.1,"inv":22,"sub":0.2,"geo":{"EU":0.48,"CN":0.18,"US":0.18,"ROW":0.16},"primaryCountry":"EU","systemic":0.8632},{"id":"MBG.DE","name":"Mercedes-Benz","sector":"Cons. Discretionary","domicile":"DE","lat":48.78,"lon":9.23,"cap":65000000000.0,"beta":1.2,"inv":17,"sub":0.3,"geo":{"EU":0.4,"CN":0.24,"US":0.22,"ROW":0.14},"primaryCountry":"EU","systemic":0.8236},{"id":"2222.SR","name":"Saudi Aramco","sector":"Energy","domicile":"SA","lat":26.29,"lon":50.15,"cap":1800000000000.0,"beta":0.75,"inv":10,"sub":0.35,"geo":{"CN":0.25,"JP":0.14,"IN":0.12,"KR":0.11,"ROW":0.38},"primaryCountry":"ROW","systemic":0.8416},{"id":"XOM","name":"Exxon Mobil","sector":"Energy","domicile":"US","lat":32.92,"lon":-96.97,"cap":500000000000.0,"beta":0.88,"inv":12,"sub":0.4,"geo":{"US":0.51,"EU":0.17,"ROW":0.32},"primaryCountry":"US","systemic":0.8336},{"id":"SHEL","name":"Shell","sector":"Energy","domicile":"GB","lat":51.51,"lon":-0.13,"cap":220000000000.0,"beta":0.9,"inv":12,"sub":0.4,"geo":{"EU":0.38,"US":0.22,"ROW":0.4},"primaryCountry":"ROW","systemic":0.8332},{"id":"EQNR","name":"Equinor","sector":"Energy","domicile":"NO","lat":58.97,"lon":5.73,"cap":70000000000.0,"beta":0.95,"inv":11,"sub":0.42,"geo":{"EU":0.72,"US":0.14,"ROW":0.14},"primaryCountry":"EU","systemic":0.8352},{"id":"BHP","name":"BHP Group","sector":"Materials","domicile":"AU","lat":-31.95,"lon":115.86,"cap":140000000000.0,"beta":1.05,"inv":25,"sub":0.3,"geo":{"CN":0.62,"JP":0.13,"KR":0.07,"ROW":0.18},"primaryCountry":"CN","systemic":0.8347},{"id":"RIO","name":"Rio Tinto","sector":"Materials","domicile":"GB","lat":51.5,"lon":-0.14,"cap":110000000000.0,"beta":1.02,"inv":26,"sub":0.32,"geo":{"CN":0.57,"US":0.13,"JP":0.11,"ROW":0.19},"primaryCountry":"CN","systemic":0.8377},{"id":"SQM","name":"Sociedad Qu\u00edmica y Minera","sector":"Materials","domicile":"CL","lat":-23.65,"lon":-70.4,"cap":12000000000.0,"beta":1.3,"inv":30,"sub":0.25,"geo":{"CN":0.45,"KR":0.16,"US":0.12,"EU":0.12,"ROW":0.15},"primaryCountry":"CN","systemic":0.8435},{"id":"LIN","name":"Linde","sector":"Materials","domicile":"GB","lat":51.51,"lon":-0.12,"cap":230000000000.0,"beta":0.95,"inv":8,"sub":0.18,"geo":{"US":0.42,"EU":0.3,"CN":0.12,"ROW":0.16},"primaryCountry":"US","systemic":0.8598},{"id":"CAT","name":"Caterpillar","sector":"Industrials","domicile":"US","lat":40.69,"lon":-89.59,"cap":170000000000.0,"beta":1.25,"inv":70,"sub":0.3,"geo":{"US":0.47,"EU":0.17,"CN":0.08,"ROW":0.28},"primaryCountry":"US","systemic":0.8236},{"id":"MAERSK","name":"A.P. Moller-Maersk","sector":"Industrials","domicile":"DK","lat":55.68,"lon":12.59,"cap":30000000000.0,"beta":1.2,"inv":5,"sub":0.25,"geo":{"EU":0.35,"US":0.24,"CN":0.2,"ROW":0.21},"primaryCountry":"EU","systemic":0.8718},{"id":"SIE.DE","name":"Siemens","sector":"Industrials","domicile":"DE","lat":48.14,"lon":11.58,"cap":160000000000.0,"beta":1.1,"inv":55,"sub":0.28,"geo":{"EU":0.45,"US":0.24,"CN":0.13,"ROW":0.18},"primaryCountry":"EU","systemic":0.8236},{"id":"AIR.PA","name":"Airbus","sector":"Industrials","domicile":"FR","lat":43.63,"lon":1.37,"cap":140000000000.0,"beta":1.15,"inv":85,"sub":0.12,"geo":{"EU":0.38,"US":0.2,"CN":0.14,"ROW":0.28},"primaryCountry":"EU","systemic":0.8236},{"id":"JNJ","name":"Johnson & Johnson","sector":"Health Care","domicile":"US","lat":40.5,"lon":-74.45,"cap":380000000000.0,"beta":0.62,"inv":95,"sub":0.45,"geo":{"US":0.56,"EU":0.22,"ROW":0.22},"primaryCountry":"US","systemic":0.8236},{"id":"NOVN.SW","name":"Novartis","sector":"Health Care","domicile":"CH","lat":47.56,"lon":7.59,"cap":220000000000.0,"beta":0.6,"inv":100,"sub":0.48,"geo":{"US":0.37,"EU":0.29,"ROW":0.34},"primaryCountry":"US","systemic":0.8261},{"id":"LLY","name":"Eli Lilly","sector":"Health Care","domicile":"US","lat":39.77,"lon":-86.16,"cap":700000000000.0,"beta":0.55,"inv":90,"sub":0.4,"geo":{"US":0.64,"EU":0.16,"ROW":0.2},"primaryCountry":"US","systemic":0.8236},{"id":"NESN.SW","name":"Nestl\u00e9","sector":"Cons. Staples","domicile":"CH","lat":46.46,"lon":6.84,"cap":260000000000.0,"beta":0.5,"inv":60,"sub":0.5,"geo":{"EU":0.31,"US":0.31,"BR":0.07,"ROW":0.31},"primaryCountry":"EU","systemic":0.8236},{"id":"KO","name":"Coca-Cola","sector":"Cons. Staples","domicile":"US","lat":33.76,"lon":-84.39,"cap":270000000000.0,"beta":0.58,"inv":55,"sub":0.52,"geo":{"US":0.38,"EU":0.17,"MX":0.07,"ROW":0.38},"primaryCountry":"US","systemic":0.8236},{"id":"PG","name":"Procter & Gamble","sector":"Cons. Staples","domicile":"US","lat":39.1,"lon":-84.51,"cap":380000000000.0,"beta":0.45,"inv":58,"sub":0.5,"geo":{"US":0.46,"EU":0.22,"CN":0.09,"ROW":0.23},"primaryCountry":"US","systemic":0.8236},{"id":"JPM","name":"JPMorgan Chase","sector":"Financials","domicile":"US","lat":40.76,"lon":-73.98,"cap":650000000000.0,"beta":1.12,"inv":365,"sub":0.9,"geo":{"US":0.75,"EU":0.13,"ROW":0.12},"primaryCountry":"US","systemic":0.8236},{"id":"HSBA.L","name":"HSBC Holdings","sector":"Financials","domicile":"GB","lat":51.51,"lon":-0.02,"cap":170000000000.0,"beta":1.0,"inv":365,"sub":0.9,"geo":{"CN":0.31,"GB":0.28,"ROW":0.41},"primaryCountry":"ROW","systemic":0.8236},{"id":"ISP.MI","name":"Intesa Sanpaolo","sector":"Financials","domicile":"IT","lat":45.07,"lon":7.68,"cap":70000000000.0,"beta":1.15,"inv":365,"sub":0.92,"geo":{"IT":0.78,"EU":0.16,"ROW":0.06},"primaryCountry":"IT","systemic":0.8236},{"id":"ALV.DE","name":"Allianz","sector":"Financials","domicile":"DE","lat":48.15,"lon":11.58,"cap":120000000000.0,"beta":0.95,"inv":365,"sub":0.9,"geo":{"EU":0.62,"US":0.22,"ROW":0.16},"primaryCountry":"EU","systemic":0.8236},{"id":"NEE","name":"NextEra Energy","sector":"Utilities","domicile":"US","lat":26.71,"lon":-80.06,"cap":150000000000.0,"beta":0.6,"inv":300,"sub":0.85,"geo":{"US":1.0},"primaryCountry":"US","systemic":0.8236},{"id":"ENEL.MI","name":"Enel","sector":"Utilities","domicile":"IT","lat":41.9,"lon":12.5,"cap":80000000000.0,"beta":0.7,"inv":300,"sub":0.82,"geo":{"IT":0.44,"ES":0.19,"BR":0.13,"ROW":0.24},"primaryCountry":"IT","systemic":0.8236},{"id":"META","name":"Meta Platforms","sector":"Comm. Services","domicile":"US","lat":37.48,"lon":-122.15,"cap":1500000000000.0,"beta":1.35,"inv":140,"sub":0.62,"geo":{"US":0.42,"EU":0.23,"ROW":0.35},"primaryCountry":"US","systemic":0.8236},{"id":"DIS","name":"Walt Disney","sector":"Comm. Services","domicile":"US","lat":34.18,"lon":-118.32,"cap":200000000000.0,"beta":1.25,"inv":120,"sub":0.55,"geo":{"US":0.74,"EU":0.13,"ROW":0.13},"primaryCountry":"US","systemic":0.8236},{"id":"HD","name":"Home Depot","sector":"Cons. Discretionary","domicile":"US","lat":33.76,"lon":-84.39,"cap":390000000000.0,"beta":1.0,"inv":65,"sub":0.42,"geo":{"US":0.93,"CA":0.05,"MX":0.02},"primaryCountry":"US","systemic":0.8236},{"id":"WMT","name":"Walmart","sector":"Cons. Staples","domicile":"US","lat":36.37,"lon":-94.21,"cap":700000000000.0,"beta":0.62,"inv":42,"sub":0.4,"geo":{"US":0.69,"MX":0.08,"CN":0.04,"ROW":0.19},"primaryCountry":"US","systemic":0.8236},{"id":"UNH","name":"UnitedHealth Group","sector":"Health Care","domicile":"US","lat":44.94,"lon":-93.46,"cap":480000000000.0,"beta":0.68,"inv":300,"sub":0.8,"geo":{"US":0.98,"BR":0.02},"primaryCountry":"US","systemic":0.8236},{"id":"BAC","name":"Bank of America","sector":"Financials","domicile":"US","lat":35.23,"lon":-80.84,"cap":350000000000.0,"beta":1.25,"inv":365,"sub":0.9,"geo":{"US":0.84,"EU":0.09,"ROW":0.07},"primaryCountry":"US","systemic":0.8236},{"id":"BRK-B","name":"Berkshire Hathaway","sector":"Financials","domicile":"US","lat":41.26,"lon":-95.93,"cap":1000000000000.0,"beta":0.85,"inv":365,"sub":0.85,"geo":{"US":0.88,"EU":0.06,"ROW":0.06},"primaryCountry":"US","systemic":0.8236},{"id":"CVX","name":"Chevron","sector":"Energy","domicile":"US","lat":29.76,"lon":-95.37,"cap":300000000000.0,"beta":0.92,"inv":12,"sub":0.4,"geo":{"US":0.58,"EU":0.13,"ROW":0.29},"primaryCountry":"US","systemic":0.8306},{"id":"GE","name":"GE Aerospace","sector":"Industrials","domicile":"US","lat":39.27,"lon":-84.47,"cap":200000000000.0,"beta":1.3,"inv":80,"sub":0.15,"geo":{"US":0.5,"EU":0.21,"ROW":0.29},"primaryCountry":"US","systemic":0.8327},{"id":"UNP","name":"Union Pacific","sector":"Industrials","domicile":"US","lat":41.26,"lon":-95.93,"cap":140000000000.0,"beta":1.05,"inv":30,"sub":0.35,"geo":{"US":1.0},"primaryCountry":"US","systemic":0.8327},{"id":"AMT","name":"American Tower","sector":"Real Estate","domicile":"US","lat":42.36,"lon":-71.06,"cap":90000000000.0,"beta":0.8,"inv":300,"sub":0.75,"geo":{"US":0.72,"IN":0.1,"BR":0.08,"ROW":0.1},"primaryCountry":"US","systemic":0.8253}],"edges":[{"s":"ASML","t":"TSM","d":0.95,"o":true,"sLat":51.42,"sLon":5.4,"tLat":24.8,"tLon":120.97},{"s":"ASML","t":"005930.KS","d":0.85,"o":true,"sLat":51.42,"sLon":5.4,"tLat":37.24,"tLon":127.08},{"s":"ASML","t":"INTC","d":0.8,"o":true,"sLat":51.42,"sLon":5.4,"tLat":45.53,"tLon":-122.94},{"s":"AMAT","t":"TSM","d":0.45,"o":true,"sLat":37.39,"sLon":-121.98,"tLat":24.8,"tLon":120.97},{"s":"AMAT","t":"005930.KS","d":0.4,"o":true,"sLat":37.39,"sLon":-121.98,"tLat":37.24,"tLon":127.08},{"s":"TSM","t":"NVDA","d":0.92,"o":true,"sLat":24.8,"sLon":120.97,"tLat":37.35,"tLon":-121.95},{"s":"TSM","t":"AAPL","d":0.8,"o":true,"sLat":24.8,"sLon":120.97,"tLat":37.33,"tLon":-122.03},{"s":"TSM","t":"AMD","d":0.88,"o":true,"sLat":24.8,"sLon":120.97,"tLat":37.38,"tLon":-121.98},{"s":"TSM","t":"AVGO","d":0.7,"o":true,"sLat":24.8,"sLon":120.97,"tLat":37.41,"tLon":-121.94},{"s":"005930.KS","t":"AAPL","d":0.3,"o":true,"sLat":37.24,"sLon":127.08,"tLat":37.33,"tLon":-122.03},{"s":"NVDA","t":"MSFT","d":0.42,"o":true,"sLat":37.35,"sLon":-121.95,"tLat":47.64,"tLon":-122.13},{"s":"NVDA","t":"GOOGL","d":0.35,"o":true,"sLat":37.35,"sLon":-121.95,"tLat":37.42,"tLon":-122.08},{"s":"NVDA","t":"AMZN","d":0.38,"o":true,"sLat":37.35,"sLon":-121.95,"tLat":47.62,"tLon":-122.34},{"s":"NVDA","t":"DELL","d":0.55,"o":true,"sLat":37.35,"sLon":-121.95,"tLat":30.51,"tLon":-97.67},{"s":"AMD","t":"DELL","d":0.3,"o":false,"sLat":37.38,"sLon":-121.98,"tLat":30.51,"tLon":-97.67},{"s":"INTC","t":"DELL","d":0.35,"o":false,"sLat":45.53,"sLon":-122.94,"tLat":30.51,"tLon":-97.67},{"s":"AVGO","t":"AAPL","d":0.25,"o":true,"sLat":37.41,"sLon":-121.94,"tLat":37.33,"tLon":-122.03},{"s":"2317.TW","t":"AAPL","d":0.55,"o":true,"sLat":24.99,"sLon":121.46,"tLat":37.33,"tLon":-122.03},{"s":"2317.TW","t":"DELL","d":0.25,"o":false,"sLat":24.99,"sLon":121.46,"tLat":30.51,"tLon":-97.67},{"s":"TSM","t":"TSLA","d":0.35,"o":false,"sLat":24.8,"sLon":120.97,"tLat":30.22,"tLon":-97.62},{"s":"TSM","t":"BOSCH","d":0.3,"o":false,"sLat":24.8,"sLon":120.97,"tLat":48.78,"tLon":9.18},{"s":"BOSCH","t":"VOW3.DE","d":0.4,"o":false,"sLat":48.78,"sLon":9.18,"tLat":52.42,"tLon":10.79},{"s":"BOSCH","t":"MBG.DE","d":0.38,"o":false,"sLat":48.78,"sLon":9.18,"tLat":48.78,"tLon":9.23},{"s":"BOSCH","t":"TM","d":0.18,"o":false,"sLat":48.78,"sLon":9.18,"tLat":35.08,"tLon":137.16},{"s":"SQM","t":"TSLA","d":0.28,"o":false,"sLat":-23.65,"sLon":-70.4,"tLat":30.22,"tLon":-97.62},{"s":"SQM","t":"005930.KS","d":0.2,"o":false,"sLat":-23.65,"sLon":-70.4,"tLat":37.24,"tLon":127.08},{"s":"2222.SR","t":"MAERSK","d":0.3,"o":false,"sLat":26.29,"sLon":50.15,"tLat":55.68,"tLon":12.59},{"s":"2222.SR","t":"AIR.PA","d":0.12,"o":false,"sLat":26.29,"sLon":50.15,"tLat":43.63,"tLon":1.37},{"s":"XOM","t":"CAT","d":0.1,"o":false,"sLat":32.92,"sLon":-96.97,"tLat":40.69,"tLon":-89.59},{"s":"SHEL","t":"MAERSK","d":0.22,"o":false,"sLat":51.51,"sLon":-0.13,"tLat":55.68,"tLon":12.59},{"s":"EQNR","t":"SIE.DE","d":0.1,"o":false,"sLat":58.97,"sLon":5.73,"tLat":48.14,"tLon":11.58},{"s":"EQNR","t":"ENEL.MI","d":0.18,"o":false,"sLat":58.97,"sLon":5.73,"tLat":41.9,"tLon":12.5},{"s":"LIN","t":"TSM","d":0.25,"o":false,"sLat":51.51,"sLon":-0.12,"tLat":24.8,"tLon":120.97},{"s":"LIN","t":"005930.KS","d":0.22,"o":false,"sLat":51.51,"sLon":-0.12,"tLat":37.24,"tLon":127.08},{"s":"LIN","t":"NOVN.SW","d":0.15,"o":false,"sLat":51.51,"sLon":-0.12,"tLat":47.56,"tLon":7.59},{"s":"BHP","t":"VOW3.DE","d":0.12,"o":false,"sLat":-31.95,"sLon":115.86,"tLat":52.42,"tLon":10.79},{"s":"BHP","t":"CAT","d":0.15,"o":false,"sLat":-31.95,"sLon":115.86,"tLat":40.69,"tLon":-89.59},{"s":"RIO","t":"AIR.PA","d":0.14,"o":false,"sLat":51.5,"sLon":-0.14,"tLat":43.63,"tLon":1.37},{"s":"RIO","t":"SIE.DE","d":0.1,"o":false,"sLat":51.5,"sLon":-0.14,"tLat":48.14,"tLon":11.58},{"s":"MAERSK","t":"AAPL","d":0.18,"o":false,"sLat":55.68,"sLon":12.59,"tLat":37.33,"tLon":-122.03},{"s":"MAERSK","t":"AMZN","d":0.22,"o":false,"sLat":55.68,"sLon":12.59,"tLat":47.62,"tLon":-122.34},{"s":"MAERSK","t":"NESN.SW","d":0.16,"o":false,"sLat":55.68,"sLon":12.59,"tLat":46.46,"tLon":6.84},{"s":"MAERSK","t":"PG","d":0.15,"o":false,"sLat":55.68,"sLon":12.59,"tLat":39.1,"tLon":-84.51},{"s":"MAERSK","t":"KO","d":0.12,"o":false,"sLat":55.68,"sLon":12.59,"tLat":33.76,"tLon":-84.39},{"s":"LIN","t":"LLY","d":0.12,"o":false,"sLat":51.51,"sLon":-0.12,"tLat":39.77,"tLon":-86.16},{"s":"NOVN.SW","t":"JNJ","d":0.06,"o":false,"sLat":47.56,"sLon":7.59,"tLat":40.5,"tLon":-74.45},{"s":"NVDA","t":"META","d":0.4,"o":true,"sLat":37.35,"sLon":-121.95,"tLat":37.48,"tLon":-122.15},{"s":"TSM","t":"META","d":0.2,"o":false,"sLat":24.8,"sLon":120.97,"tLat":37.48,"tLon":-122.15},{"s":"MAERSK","t":"WMT","d":0.2,"o":false,"sLat":55.68,"sLon":12.59,"tLat":36.37,"tLon":-94.21},{"s":"MAERSK","t":"HD","d":0.14,"o":false,"sLat":55.68,"sLon":12.59,"tLat":33.76,"tLon":-84.39},{"s":"2317.TW","t":"META","d":0.15,"o":false,"sLat":24.99,"sLon":121.46,"tLat":37.48,"tLon":-122.15},{"s":"GE","t":"AIR.PA","d":0.22,"o":false,"sLat":39.27,"sLon":-84.47,"tLat":43.63,"tLon":1.37},{"s":"RIO","t":"GE","d":0.1,"o":false,"sLat":51.5,"sLon":-0.14,"tLat":39.27,"tLon":-84.47},{"s":"UNP","t":"CAT","d":0.12,"o":false,"sLat":41.26,"sLon":-95.93,"tLat":40.69,"tLon":-89.59},{"s":"UNP","t":"WMT","d":0.1,"o":false,"sLat":41.26,"sLon":-95.93,"tLat":36.37,"tLon":-94.21},{"s":"XOM","t":"UNP","d":0.14,"o":false,"sLat":32.92,"sLon":-96.97,"tLat":41.26,"tLon":-95.93},{"s":"CVX","t":"MAERSK","d":0.16,"o":false,"sLat":29.76,"sLon":-95.37,"tLat":55.68,"tLon":12.59},{"s":"LIN","t":"GE","d":0.08,"o":false,"sLat":51.51,"sLon":-0.12,"tLat":39.27,"tLon":-84.47},{"s":"AMT","t":"DIS","d":0.04,"o":false,"sLat":42.36,"sLon":-71.06,"tLat":34.18,"tLon":-118.32}],"eventCatalogue":[{"key":"major_war","category":"geopolitical","scope":"region","headline":"Conflitto armato su larga scala: {target} \u2014 mercati in fuga verso la qualit\u00e0","rate":0.08,"imp":[0.25,0.65],"eq":[-0.3,-0.12],"mkt":[-0.18,-0.07],"dur":[180,720],"drift":[-0.03,-0.01],"distress":2.5,"fav":false,"sev":"estremo","sectors":[],"countries":[]},{"key":"regional_conflict","category":"geopolitical","scope":"country","headline":"Escalation militare in {target}: interrotte le catene locali","rate":0.28,"imp":[0.1,0.35],"eq":[-0.15,-0.04],"mkt":[-0.05,-0.01],"dur":[90,365],"drift":[0.0,0.0],"distress":1.6,"fav":false,"sev":"alto","sectors":[],"countries":[]},{"key":"trade_war","category":"geopolitical","scope":"country","headline":"Nuovi dazi su {target}: {pct} sulle importazioni","rate":0.22,"imp":[0.05,0.2],"eq":[-0.12,-0.03],"mkt":[-0.04,-0.01],"dur":[180,900],"drift":[-0.015,-0.003],"distress":1.0,"fav":false,"sev":"medio","sectors":[],"countries":[]},{"key":"export_controls","category":"geopolitical","scope":"sector","headline":"Controlli all'export su {target}: tecnologia avanzata sotto licenza","rate":0.2,"imp":[0.1,0.3],"eq":[-0.14,-0.04],"mkt":[0.0,0.0],"dur":[365,1095],"drift":[-0.02,-0.005],"distress":1.0,"fav":false,"sev":"alto","sectors":["Semis","Semis Equipment"],"countries":[]},{"key":"sanctions","category":"geopolitical","scope":"country","headline":"Pacchetto di sanzioni verso {target}","rate":0.2,"imp":[0.08,0.28],"eq":[-0.13,-0.03],"mkt":[0.0,0.0],"dur":[365,1095],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"medio","sectors":[],"countries":[]},{"key":"election_shock","category":"geopolitical","scope":"country","headline":"Esito elettorale inatteso in {target}: premio al rischio in salita","rate":0.35,"imp":[0.0,0.0],"eq":[-0.09,0.05],"mkt":[-0.03,0.01],"dur":[20,90],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"basso","sectors":[],"countries":[]},{"key":"political_instability","category":"geopolitical","scope":"country","headline":"Crisi istituzionale in {target}: sospesi gli investimenti esteri","rate":0.14,"imp":[0.05,0.22],"eq":[-0.18,-0.06],"mkt":[0.0,0.0],"dur":[90,540],"drift":[0.0,0.0],"distress":1.8,"fav":false,"sev":"alto","sectors":[],"countries":[]},{"key":"peace_deal","category":"geopolitical","scope":"region","headline":"Accordo di pace in {target}: riaprono i corridoi commerciali","rate":0.12,"imp":[0.0,0.0],"eq":[0.03,0.12],"mkt":[0.01,0.05],"dur":[60,240],"drift":[0.005,0.02],"distress":1.0,"fav":true,"sev":"favorevole","sectors":[],"countries":[]},{"key":"trade_agreement","category":"geopolitical","scope":"region","headline":"Nuovo accordo di libero scambio: {target}","rate":0.18,"imp":[0.0,0.0],"eq":[0.02,0.09],"mkt":[0.0,0.0],"dur":[180,720],"drift":[0.004,0.015],"distress":1.0,"fav":true,"sev":"favorevole","sectors":[],"countries":[]},{"key":"pandemic","category":"health","scope":"global","headline":"Emergenza sanitaria globale: lockdown e arresto manifatturiero","rate":0.025,"imp":[0.3,0.7],"eq":[-0.22,-0.08],"mkt":[-0.34,-0.16],"dur":[180,540],"drift":[-0.02,0.005],"distress":3.0,"fav":false,"sev":"estremo","sectors":[],"countries":[]},{"key":"epidemic_regional","category":"health","scope":"region","headline":"Epidemia in {target}: restrizioni alla mobilit\u00e0","rate":0.12,"imp":[0.1,0.3],"eq":[-0.1,-0.02],"mkt":[-0.05,-0.01],"dur":[60,240],"drift":[0.0,0.0],"distress":1.5,"fav":false,"sev":"alto","sectors":[],"countries":[]},{"key":"medical_breakthrough","category":"health","scope":"sector","headline":"Svolta terapeutica in {target}: approvazione accelerata","rate":0.14,"imp":[0.0,0.0],"eq":[0.06,0.25],"mkt":[0.0,0.0],"dur":[90,365],"drift":[0.01,0.04],"distress":1.0,"fav":true,"sev":"favorevole","sectors":["Health Care"],"countries":[]},{"key":"major_earthquake","category":"natural","scope":"country","headline":"Terremoto di forte magnitudo in {target}: impianti fermi","rate":0.22,"imp":[0.2,0.6],"eq":[-0.14,-0.04],"mkt":[0.0,0.0],"dur":[45,240],"drift":[0.0,0.0],"distress":1.4,"fav":false,"sev":"alto","sectors":[],"countries":[]},{"key":"flood","category":"natural","scope":"country","headline":"Alluvione in {target}: distretti industriali allagati","rate":0.34,"imp":[0.1,0.35],"eq":[-0.08,-0.02],"mkt":[0.0,0.0],"dur":[30,150],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"medio","sectors":[],"countries":[]},{"key":"hurricane","category":"natural","scope":"country","headline":"Uragano su {target}: raffinerie e porti chiusi","rate":0.38,"imp":[0.1,0.3],"eq":[-0.07,-0.01],"mkt":[0.0,0.0],"dur":[15,75],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"medio","sectors":[],"countries":[]},{"key":"drought","category":"natural","scope":"country","headline":"Siccit\u00e0 severa in {target}: razionamento di acqua ed energia","rate":0.24,"imp":[0.08,0.25],"eq":[-0.06,-0.01],"mkt":[0.0,0.0],"dur":[120,400],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"medio","sectors":[],"countries":[]},{"key":"volcanic","category":"natural","scope":"region","headline":"Eruzione vulcanica: spazio aereo chiuso su {target}","rate":0.07,"imp":[0.1,0.28],"eq":[-0.06,-0.01],"mkt":[0.0,0.0],"dur":[10,60],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"medio","sectors":[],"countries":[]},{"key":"rate_shock_up","category":"monetary","scope":"global","headline":"Stretta monetaria a sorpresa: {pct} sui tassi di riferimento","rate":0.28,"imp":[0.0,0.0],"eq":[0.0,0.0],"mkt":[-0.12,-0.03],"dur":[60,300],"drift":[-0.02,-0.005],"distress":1.5,"fav":false,"sev":"alto","sectors":[],"countries":[]},{"key":"rate_shock_down","category":"monetary","scope":"global","headline":"Taglio dei tassi oltre le attese: {pct}","rate":0.24,"imp":[0.0,0.0],"eq":[0.0,0.0],"mkt":[0.03,0.1],"dur":[60,300],"drift":[0.005,0.02],"distress":1.0,"fav":true,"sev":"favorevole","sectors":[],"countries":[]},{"key":"inflation_spike","category":"monetary","scope":"global","headline":"Inflazione oltre le attese: {pct} su base annua","rate":0.22,"imp":[0.0,0.0],"eq":[0.0,0.0],"mkt":[-0.09,-0.02],"dur":[90,400],"drift":[-0.012,-0.002],"distress":1.0,"fav":false,"sev":"medio","sectors":[],"countries":[]},{"key":"currency_crisis","category":"monetary","scope":"country","headline":"Crisi valutaria in {target}: svalutazione del {pct}","rate":0.16,"imp":[0.0,0.0],"eq":[-0.25,-0.08],"mkt":[0.0,0.0],"dur":[60,365],"drift":[0.0,0.0],"distress":2.0,"fav":false,"sev":"alto","sectors":[],"countries":[]},{"key":"sovereign_crisis","category":"monetary","scope":"country","headline":"Crisi del debito sovrano: spread di {target} fuori controllo","rate":0.1,"imp":[0.0,0.0],"eq":[-0.28,-0.1],"mkt":[-0.07,-0.02],"dur":[120,540],"drift":[0.0,0.0],"distress":2.2,"fav":false,"sev":"estremo","sectors":[],"countries":[]},{"key":"recession","category":"monetary","scope":"global","headline":"Recessione confermata: contrazione del PIL per due trimestri","rate":0.13,"imp":[0.05,0.18],"eq":[-0.1,-0.03],"mkt":[-0.24,-0.1],"dur":[270,720],"drift":[-0.025,-0.008],"distress":2.4,"fav":false,"sev":"estremo","sectors":[],"countries":[]},{"key":"credit_crunch","category":"monetary","scope":"sector","headline":"Stretta creditizia: {target} sotto pressione di liquidit\u00e0","rate":0.11,"imp":[0.0,0.0],"eq":[-0.3,-0.1],"mkt":[-0.1,-0.03],"dur":[90,400],"drift":[0.0,0.0],"distress":2.6,"fav":false,"sev":"estremo","sectors":["Financials"],"countries":[]},{"key":"expansion","category":"monetary","scope":"global","headline":"Crescita sopra le attese: revisione al rialzo delle stime","rate":0.22,"imp":[0.0,0.0],"eq":[0.0,0.0],"mkt":[0.04,0.14],"dur":[180,540],"drift":[0.008,0.025],"distress":1.0,"fav":true,"sev":"favorevole","sectors":[],"countries":[]},{"key":"oil_shock","category":"sector","scope":"sector","headline":"Shock petrolifero: greggio {pct} in poche sedute","rate":0.2,"imp":[0.0,0.0],"eq":[0.08,0.3],"mkt":[-0.08,-0.02],"dur":[60,300],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"alto","sectors":["Energy"],"countries":[]},{"key":"commodity_squeeze","category":"sector","scope":"sector","headline":"Stretta sulle materie prime: {target} ai massimi storici","rate":0.24,"imp":[0.05,0.22],"eq":[-0.1,0.15],"mkt":[0.0,0.0],"dur":[90,365],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"medio","sectors":["Materials"],"countries":[]},{"key":"chip_shortage","category":"sector","scope":"sector","headline":"Carenza globale di semiconduttori: allocazione razionata","rate":0.14,"imp":[0.15,0.4],"eq":[-0.12,0.1],"mkt":[0.0,0.0],"dur":[180,540],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"alto","sectors":["Semis","Cons. Discretionary"],"countries":[]},{"key":"bubble_burst","category":"sector","scope":"sector","headline":"Sgonfiamento delle valutazioni in {target}","rate":0.13,"imp":[0.0,0.0],"eq":[-0.42,-0.18],"mkt":[-0.09,-0.02],"dur":[120,540],"drift":[-0.02,-0.005],"distress":1.7,"fav":false,"sev":"estremo","sectors":[],"countries":[]},{"key":"sector_boom","category":"sector","scope":"sector","headline":"Ciclo di investimenti record in {target}","rate":0.28,"imp":[0.0,0.0],"eq":[0.1,0.38],"mkt":[0.0,0.0],"dur":[180,720],"drift":[0.015,0.05],"distress":1.0,"fav":true,"sev":"favorevole","sectors":[],"countries":[]},{"key":"chokepoint_closure","category":"infrastructure","scope":"chokepoint","headline":"Chiusura di un nodo logistico critico: {target}","rate":0.18,"imp":[0.3,0.75],"eq":[-0.12,-0.03],"mkt":[-0.04,-0.01],"dur":[20,150],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"alto","sectors":[],"countries":[]},{"key":"cyberattack","category":"infrastructure","scope":"company","headline":"Attacco informatico su {target}: operativit\u00e0 compromessa","rate":0.4,"imp":[0.15,0.5],"eq":[-0.14,-0.03],"mkt":[0.0,0.0],"dur":[7,60],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"medio","sectors":[],"countries":[]},{"key":"grid_failure","category":"infrastructure","scope":"country","headline":"Blackout esteso in {target}: produzione sospesa","rate":0.18,"imp":[0.15,0.45],"eq":[-0.07,-0.01],"mkt":[0.0,0.0],"dur":[3,40],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"medio","sectors":[],"countries":[]},{"key":"port_strike","category":"infrastructure","scope":"country","headline":"Sciopero portuale in {target}: container fermi","rate":0.28,"imp":[0.1,0.35],"eq":[-0.05,-0.01],"mkt":[0.0,0.0],"dur":[7,60],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"basso","sectors":[],"countries":[]},{"key":"ai_breakthrough","category":"technology","scope":"sector","headline":"Salto tecnologico nell'IA: {target} rivaluta le stime di crescita","rate":0.24,"imp":[0.0,0.0],"eq":[0.1,0.45],"mkt":[0.0,0.0],"dur":[180,720],"drift":[0.02,0.06],"distress":1.0,"fav":true,"sev":"favorevole","sectors":["Semis","Software","Comm. Services"],"countries":[]},{"key":"tech_disruption","category":"technology","scope":"sector","headline":"Nuovo entrante disruptivo in {target}: margini sotto pressione","rate":0.2,"imp":[0.0,0.0],"eq":[-0.25,-0.06],"mkt":[0.0,0.0],"dur":[180,900],"drift":[-0.03,-0.008],"distress":1.0,"fav":false,"sev":"alto","sectors":[],"countries":[]},{"key":"earnings_beat","category":"company","scope":"company","headline":"{target} batte le stime: utili sopra il consenso del {pct}","rate":6.0,"imp":[0.0,0.0],"eq":[0.03,0.16],"mkt":[0.0,0.0],"dur":[5,30],"drift":[0.002,0.012],"distress":1.0,"fav":true,"sev":"favorevole","sectors":[],"countries":[]},{"key":"earnings_miss","category":"company","scope":"company","headline":"{target} delude: utili sotto il consenso del {pct}","rate":5.0,"imp":[0.0,0.0],"eq":[-0.18,-0.03],"mkt":[0.0,0.0],"dur":[5,30],"drift":[-0.012,-0.002],"distress":1.0,"fav":false,"sev":"medio","sectors":[],"countries":[]},{"key":"guidance_cut","category":"company","scope":"company","headline":"{target} taglia la guidance per l'esercizio in corso","rate":1.6,"imp":[0.0,0.0],"eq":[-0.22,-0.06],"mkt":[0.0,0.0],"dur":[30,120],"drift":[-0.02,-0.004],"distress":1.3,"fav":false,"sev":"alto","sectors":[],"countries":[]},{"key":"product_breakthrough","category":"company","scope":"company","headline":"{target} annuncia un prodotto che ridefinisce la categoria","rate":1.2,"imp":[0.0,0.0],"eq":[0.08,0.35],"mkt":[0.0,0.0],"dur":[90,400],"drift":[0.01,0.045],"distress":1.0,"fav":true,"sev":"favorevole","sectors":[],"countries":[]},{"key":"mna","category":"company","scope":"company","headline":"Operazione di M&A su {target}: premio del {pct}","rate":0.9,"imp":[0.0,0.0],"eq":[0.1,0.35],"mkt":[0.0,0.0],"dur":[30,180],"drift":[0.0,0.0],"distress":1.0,"fav":true,"sev":"favorevole","sectors":[],"countries":[]},{"key":"fraud_scandal","category":"company","scope":"company","headline":"Irregolarit\u00e0 contabili in {target}: indagine aperta","rate":0.22,"imp":[0.0,0.0],"eq":[-0.55,-0.2],"mkt":[0.0,0.0],"dur":[90,540],"drift":[-0.04,-0.01],"distress":4.0,"fav":false,"sev":"estremo","sectors":[],"countries":[]},{"key":"regulatory_fine","category":"company","scope":"company","headline":"Sanzione dell'autorit\u00e0 su {target}: multa record","rate":0.7,"imp":[0.0,0.0],"eq":[-0.14,-0.03],"mkt":[0.0,0.0],"dur":[20,120],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"medio","sectors":[],"countries":[]},{"key":"antitrust","category":"company","scope":"company","headline":"Istruttoria antitrust su {target}: ipotesi di spezzatino","rate":0.28,"imp":[0.0,0.0],"eq":[-0.2,-0.05],"mkt":[0.0,0.0],"dur":[180,900],"drift":[-0.02,-0.004],"distress":1.0,"fav":false,"sev":"alto","sectors":[],"countries":[]},{"key":"ceo_change","category":"company","scope":"company","headline":"Cambio al vertice di {target}","rate":1.1,"imp":[0.0,0.0],"eq":[-0.08,0.08],"mkt":[0.0,0.0],"dur":[10,60],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"basso","sectors":[],"countries":[]},{"key":"labour_dispute","category":"company","scope":"company","headline":"Sciopero prolungato in {target}: linee produttive ferme","rate":0.6,"imp":[0.15,0.45],"eq":[-0.1,-0.02],"mkt":[0.0,0.0],"dur":[10,90],"drift":[0.0,0.0],"distress":1.0,"fav":false,"sev":"medio","sectors":[],"countries":[]},{"key":"plant_accident","category":"company","scope":"company","headline":"Incidente industriale in un impianto di {target}","rate":0.45,"imp":[0.2,0.55],"eq":[-0.12,-0.03],"mkt":[0.0,0.0],"dur":[30,180],"drift":[0.0,0.0],"distress":1.4,"fav":false,"sev":"alto","sectors":[],"countries":[]},{"key":"patent_win","category":"company","scope":"company","headline":"{target} vince la causa sui brevetti: royalties in arrivo","rate":0.5,"imp":[0.0,0.0],"eq":[0.04,0.18],"mkt":[0.0,0.0],"dur":[60,300],"drift":[0.004,0.018],"distress":1.0,"fav":true,"sev":"favorevole","sectors":[],"countries":[]},{"key":"major_contract","category":"company","scope":"company","headline":"{target} si aggiudica un contratto pluriennale da record","rate":1.4,"imp":[0.0,0.0],"eq":[0.05,0.22],"mkt":[0.0,0.0],"dur":[90,500],"drift":[0.008,0.03],"distress":1.0,"fav":true,"sev":"favorevole","sectors":[],"countries":[]}],"defaultPortfolio":{"AAPL":0.12,"MSFT":0.12,"NVDA":0.1,"GOOGL":0.08,"AMZN":0.07,"TSM":0.06,"ASML":0.05,"TSLA":0.04,"JPM":0.07,"JNJ":0.06,"LLY":0.05,"XOM":0.05,"NESN.SW":0.04,"SIE.DE":0.04,"KO":0.03,"ENEL.MI":0.02}};
+
+const TD = WORLD.meta.tradingDaysPerYear;            // trading days / year
+const CAL = WORLD.meta.calibration;
+const DRIFT_COMP = WORLD.meta.eventDriftCompensation; // negative
+const NODES = WORLD.nodes;
+const NODE_BY_ID = new Map(NODES.map(n => [n.id, n]));
+const EDGES = WORLD.edges;
+const COUNTRIES = WORLD.countries;
+const COUNTRY_BY_CODE = new Map(COUNTRIES.map(c => [c.code, c]));
+const CATALOGUE = WORLD.eventCatalogue;
+const CHOKEPOINTS = WORLD.chokepoints;
+const SECTORS = WORLD.sectorProfile;
+
+/* Predecessors per node, for the propagation step. */
+const PREDS = new Map(NODES.map(n => [n.id, []]));
+for (const e of EDGES) PREDS.get(e.t).push(e);
+
+/* --------------------------------------------------------------- random */
+/* mulberry32: small, fast, and seedable — the point is reproducibility,
+   not cryptographic quality. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function makeRng(seed) {
+  const u = mulberry32(seed);
+  let spare = null;
+  return {
+    next: u,
+    /* Box-Muller, caching the second deviate. */
+    normal() {
+      if (spare !== null) { const s = spare; spare = null; return s; }
+      let a = 0, b = 0;
+      while (a === 0) a = u();
+      b = u();
+      const r = Math.sqrt(-2 * Math.log(a));
+      const th = 2 * Math.PI * b;
+      spare = r * Math.sin(th);
+      return r * Math.cos(th);
+    },
+    /* Knuth for small means; normal approximation once that gets slow. */
+    poisson(lambda) {
+      if (lambda <= 0) return 0;
+      if (lambda < 30) {
+        const L = Math.exp(-lambda);
+        let k = 0, p = 1;
+        do { k++; p *= u(); } while (p > L);
+        return k - 1;
+      }
+      return Math.max(0, Math.round(lambda + Math.sqrt(lambda) * this.normal()));
+    },
+    uniform(lo, hi) { return lo === hi ? lo : lo + (hi - lo) * u(); },
+    int(lo, hi) { return lo + Math.floor(u() * (hi - lo + 1)); },
+    pick(arr) { return arr[Math.floor(u() * arr.length)]; }
+  };
+}
+
+/* ------------------------------------------------------- event sampling */
+const ALL_COUNTRIES = [...new Set(NODES.map(n => n.domicile))].sort();
+const ALL_SECTORS = [...new Set(NODES.map(n => n.sector))].sort();
+const ALL_TICKERS = NODES.map(n => n.id).sort();
+const ALL_REGIONS = [...new Set(COUNTRIES.map(c => c.region))].sort();
+
+function resolveTarget(rng, tpl) {
+  switch (tpl.scope) {
+    case "global":     return ["world", ["*"]];
+    case "chokepoint": { const k = rng.pick(Object.keys(CHOKEPOINTS).sort()); return [k, CHOKEPOINTS[k]]; }
+    case "sector":     { const p = (tpl.sectors.length ? tpl.sectors : ALL_SECTORS).slice().sort(); const k = rng.pick(p); return [k, [k]]; }
+    case "country":    { const p = (tpl.countries.length ? tpl.countries : ALL_COUNTRIES).slice().sort(); const k = rng.pick(p); return [k, [k]]; }
+    case "region":     { const k = rng.pick(ALL_REGIONS); return [k, [k]]; }
+    default:           { const k = rng.pick(ALL_TICKERS); return [k, [k]]; }
+  }
+}
+
+function renderHeadline(tpl, target, eq, mkt, rng) {
+  let mag = Math.abs(eq) > Math.abs(mkt) ? eq : mkt;
+  if (mag === 0) mag = rng.uniform(0.01, 0.05);
+  return tpl.headline
+    .replace("{target}", target)
+    .replace("{pct}", Math.round(Math.abs(mag) * 100) + "%");
+}
+
+function sampleEvents(horizonDays, seed, intensity) {
+  const rng = makeRng(seed);
+  const years = horizonDays / 365;
+  const out = [];
+  /* Sorted by key so the draw order does not depend on catalogue order. */
+  for (const tpl of CATALOGUE.slice().sort((a, b) => a.key < b.key ? -1 : 1)) {
+    const count = rng.poisson(tpl.rate * years * intensity);
+    for (let i = 0; i < count; i++) {
+      const day = rng.int(0, horizonDays - 1);
+      const [target, resolved] = resolveTarget(rng, tpl);
+      const imp = rng.uniform(tpl.imp[0], tpl.imp[1]);
+      const eq = rng.uniform(tpl.eq[0], tpl.eq[1]);
+      const mkt = rng.uniform(tpl.mkt[0], tpl.mkt[1]);
+      const drift = rng.uniform(tpl.drift[0], tpl.drift[1]);
+      const dur = rng.int(tpl.dur[0], tpl.dur[1]);
+      out.push({
+        day, tpl, target, resolved, imp, eq, mkt, drift,
+        dur, endDay: day + dur,
+        headline: renderHeadline(tpl, target, eq, mkt, rng),
+        fav: tpl.fav, sev: tpl.sev, category: tpl.category, scope: tpl.scope
+      });
+    }
+  }
+  out.sort((a, b) => a.day - b.day || (a.tpl.key < b.tpl.key ? -1 : 1));
+  return out;
+}
+
+/* Resolve an event's scope onto concrete tickers. Country and region use
+   REVENUE GEOGRAPHY, not domicile: a shock to a country hits whoever
+   actually sells there. */
+function affected(ev) {
+  switch (ev.scope) {
+    case "global": return ALL_TICKERS;
+    case "company":
+    case "chokepoint": return ev.resolved.filter(t => NODE_BY_ID.has(t));
+    case "sector": { const w = new Set(ev.resolved); return NODES.filter(n => w.has(n.sector)).map(n => n.id); }
+    case "country": {
+      const w = new Set(ev.resolved);
+      return NODES.filter(n => Object.keys(n.geo).some(c => w.has(c)) || w.has(n.domicile)).map(n => n.id);
+    }
+    case "region": {
+      const w = new Set(ev.resolved);
+      const codes = new Set(COUNTRIES.filter(c => w.has(c.region)).map(c => c.code));
+      return NODES.filter(n => Object.keys(n.geo).some(c => codes.has(c)) || codes.has(n.domicile)).map(n => n.id);
+    }
+    default: return [];
+  }
+}
+
+/* --------------------------------------------------------- propagation */
+/* One tick of the two-clock physics. Mutates `buffers`. */
+function propagationStep(imp, buffers, clamped, dead) {
+  const pressure = new Map();
+  for (const n of NODES) {
+    let raw = 0;
+    for (const e of PREDS.get(n.id)) {
+      const up = dead.has(e.s) ? 1 : (imp.get(e.s) || 0);
+      raw += up * e.d;
+    }
+    pressure.set(n.id, Math.min(1, raw * CAL.transmission * (1 - n.sub)));
+  }
+  const next = new Map();
+  for (const n of NODES) {
+    if (dead.has(n.id)) { next.set(n.id, 1); continue; }
+    const p = pressure.get(n.id);
+    const cur = imp.get(n.id) || 0;
+    const cl = clamped.get(n.id);
+    if (cl !== undefined) { next.set(n.id, Math.max(cl, p)); continue; }
+    if (p > 1e-9 && (buffers.get(n.id) || 0) > 0) {
+      buffers.set(n.id, Math.max(0, buffers.get(n.id) - CAL.propagationTickDays * p));
+      next.set(n.id, Math.max(0, cur - CAL.recoveryPerTick));
+      continue;
+    }
+    const moved = cur + 0.5 * (Math.max(p, 0) - cur);
+    next.set(n.id, Math.max(0, Math.min(1, moved - CAL.recoveryPerTick)));
+  }
+  return next;
+}
+
+/* ---------------------------------------------------------- simulation */
+function simulate(horizonYears, seed, intensity) {
+  const horizonDays = Math.round(horizonYears * 365);
+  const n = Math.max(2, Math.round(horizonDays * TD / 365));
+  const dt = 1 / TD, sq = Math.sqrt(dt);
+  const rng = makeRng(seed ^ 0x9e3779b9);   /* decorrelate from the event stream */
+  const events = sampleEvents(horizonDays, seed, intensity);
+
+  /* Compensate the catalogue's structural negative drift, so marketDrift is
+     the unconditional expectation rather than a number events overwhelm. */
+  const effDrift = CAL.marketDrift - DRIFT_COMP * intensity;
+
+  const dayToStep = d => Math.min(n - 1, Math.max(1, Math.floor(d * TD / 365)));
+
+  /* Macro shocks SPREAD over the event window; company shocks JUMP on the
+     day. An earnings miss gaps the stock in one session; a recession's
+     drawdown materialises over quarters. */
+  const mktJump = new Float64Array(n);
+  const eqJump = new Map();           // step -> [{ev}]
+  for (const ev of events) {
+    const st = dayToStep(ev.day);
+    if (ev.mkt) {
+      const span = Math.max(1, Math.min(Math.round(ev.dur * TD / 365), 180));
+      const per = ev.mkt / span;
+      for (let k = 0; k < span && st + k < n; k++) mktJump[st + k] += per;
+    }
+    if (ev.eq || ev.drift || ev.imp) {
+      if (!eqJump.has(st)) eqJump.set(st, []);
+      eqJump.get(st).push(ev);
+    }
+  }
+
+  const price = new Map(), caps = new Map(), driftX = new Map(), peak = new Map();
+  const buffers = new Map();
+  let imp = new Map();
+  for (const nd of NODES) {
+    price.set(nd.id, 100); caps.set(nd.id, nd.cap); driftX.set(nd.id, 0);
+    peak.set(nd.id, 100); buffers.set(nd.id, nd.inv); imp.set(nd.id, 0);
+  }
+
+  const px = new Map(NODES.map(nd => [nd.id, new Float32Array(n)]));
+  const impArr = new Map(NODES.map(nd => [nd.id, new Float32Array(n)]));
+  const mkt = new Float32Array(n);
+  const calDays = new Int32Array(n);
+  const dead = new Set();
+  const failedDay = new Map();
+  let level = 100;
+
+  /* t = 0 is the recorded initial state, so index i is the state AT day i
+     and every path starts on the 100 baseline. */
+  calDays[0] = 0; mkt[0] = 100;
+  for (const nd of NODES) { px.get(nd.id)[0] = 100; impArr.get(nd.id)[0] = 0; }
+
+  const tickEvery = Math.max(1, Math.round(CAL.propagationTickDays * TD / 365));
+
+  for (let s = 1; s < n; s++) {
+    const calDay = Math.round(s * 365 / TD);
+    calDays[s] = calDay;
+
+    let distress = 1;
+    const active = [];
+    for (const ev of events) {
+      if (ev.day <= calDay && calDay < ev.endDay) {
+        active.push(ev);
+        if (ev.tpl.distress > distress) distress = ev.tpl.distress;
+      }
+    }
+
+    const mr = effDrift * dt + CAL.marketVol * sq * rng.normal() + mktJump[s];
+    level *= 1 + mr;
+    mkt[s] = level;
+
+    const sr = new Map();
+    for (const k of Object.keys(SECTORS)) {
+      const p = SECTORS[k];
+      sr.set(k, p.drift * dt + p.vol * sq * rng.normal());
+    }
+
+    if ((s - 1) % tickEvery === 0) {
+      const clamped = new Map();
+      for (const ev of active) {
+        if (ev.imp <= 0) continue;
+        for (const t of affected(ev)) {
+          clamped.set(t, Math.max(clamped.get(t) || 0, ev.imp));
+        }
+      }
+      imp = propagationStep(imp, buffers, clamped, dead);
+      for (const nd of NODES) {
+        if ((imp.get(nd.id) || 0) < 1e-6) {
+          buffers.set(nd.id, Math.min(nd.inv, buffers.get(nd.id) + CAL.propagationTickDays * 0.5));
+        }
+      }
+    }
+
+    const ej = new Map();
+    for (const ev of (eqJump.get(s) || [])) {
+      for (const t of affected(ev)) {
+        ej.set(t, (ej.get(t) || 0) + ev.eq);
+        driftX.set(t, driftX.get(t) + ev.drift);
+      }
+    }
+
+    for (const nd of NODES) {
+      const id = nd.id;
+      if (dead.has(id)) {
+        px.get(id)[s] = price.get(id); impArr.get(id)[s] = 1;
+        continue;
+      }
+      const i = imp.get(id) || 0;
+      const r = nd.beta * mr
+        + (sr.get(nd.sector) || 0)
+        + driftX.get(id) * dt
+        + CAL.idiosyncraticVol * sq * rng.normal()
+        + (ej.get(id) || 0)
+        + CAL.impairmentPriceBeta * i * dt;
+
+      const p2 = Math.max(0.01, price.get(id) * (1 + r));
+      price.set(id, p2);
+      caps.set(id, Math.max(1e6, caps.get(id) * (1 + r)));
+      if (p2 > peak.get(id)) peak.set(id, p2);
+
+      const dd = peak.get(id) > 0 ? 1 - p2 / peak.get(id) : 0;
+      const stress = 1 + 2 * Math.max(0, dd - 0.65) + 1.2 * i;
+      const mult = Math.min(Math.sqrt(distress) * stress, CAL.maxHazardMultiplier);
+      if (rng.next() < CAL.baseHazard * dt * mult) {
+        dead.add(id); failedDay.set(id, calDay);
+        price.set(id, p2 * rng.uniform(0.02, 0.15));
+      }
+      px.get(id)[s] = price.get(id);
+      impArr.get(id)[s] = i;
+    }
+  }
+
+  return { n, calDays, px, imp: impArr, mkt, events, failedDay, horizonDays, seed, intensity };
+}
+
+/* ------------------------------------------------------------ portfolio */
+/* Valuation is a cheap reduction over an already-simulated world, which is
+   what lets the portfolio be edited mid-run with no recompute. */
+function portfolioPath(sim, weights) {
+  const entries = Object.entries(weights).filter(([, w]) => w > 0);
+  const total = entries.reduce((a, [, w]) => a + w, 0);
+  const out = new Float32Array(sim.n);
+  if (total <= 0) return out;
+  const held = entries.filter(([t]) => sim.px.has(t)).map(([t, w]) => [t, w / total]);
+  const cash = 1 - held.reduce((a, [, w]) => a + w, 0);
+  for (let i = 0; i < sim.n; i++) {
+    let v = cash;
+    for (const [t, w] of held) v += w * (sim.px.get(t)[i] / 100);
+    out[i] = v - 1;
+  }
+  return out;
+}
+
+function uncoveredWeight(weights) {
+  const entries = Object.entries(weights).filter(([, w]) => w > 0);
+  const total = entries.reduce((a, [, w]) => a + w, 0);
+  if (total <= 0) return 0;
+  return entries.filter(([t]) => !NODE_BY_ID.has(t)).reduce((a, [, w]) => a + w, 0) / total;
+}
+
+function relevanceOf(ev, held) {
+  if (!held.size) return "mondo";
+  const direct = ev.resolved.filter(t => held.has(t));
+  if (direct.length) return "diretta";
+  if (["global", "sector", "country", "region"].includes(ev.scope)) {
+    return affected(ev).some(t => held.has(t)) ? "indiretta" : "mondo";
+  }
+  return "mondo";
+}
+</script>
+
+<script>
+"use strict";
+/* ===================================================================== */
+/*  Orthographic globe renderer                                           */
+/*                                                                        */
+/*  Companies sit at their real operating-centre coordinates, because the */
+/*  point is where things are actually made: placing Apple in Washington  */
+/*  because it is "US" would defeat the exercise. Country markers show    */
+/*  every country in the dataset — the ones with no companies render as   */
+/*  empty rings rather than being dropped.                                */
+/*                                                                        */
+/*  Coastlines are deliberately low-poly and stylised: they orient the    */
+/*  viewer without pretending to cartographic precision this simulation   */
+/*  does not have.                                                        */
+/* ===================================================================== */
+
+const LAND = {
+  africa: [[31,-9],[35,-5],[37,10],[33,11],[31,20],[31,32],[22,37],[12,43],[11,51],
+           [2,42],[-5,39],[-16,40],[-26,33],[-34,26],[-34,18],[-23,14],[-12,13],
+           [-5,9],[4,9],[5,-4],[10,-14],[15,-17],[21,-17],[27,-13]],
+  eurasia: [[36,-9],[43,-9],[44,-1],[48,-5],[50,-1],[54,9],[58,5],[63,11],[71,25],
+            [69,33],[66,41],[61,50],[68,69],[73,80],[76,105],[71,129],[66,180],
+            [60,163],[54,141],[43,132],[39,122],[31,122],[22,114],[21,109],[10,105],
+            [9,99],[16,95],[22,90],[21,72],[23,67],[25,57],[29,48],[30,32],[36,36],
+            [41,29],[41,20],[38,16],[44,12],[43,3]],
+  namerica: [[71,-157],[70,-141],[69,-130],[60,-140],[58,-135],[49,-125],[40,-124],
+             [32,-117],[23,-110],[20,-105],[16,-95],[18,-88],[21,-87],[25,-97],
+             [29,-94],[30,-88],[26,-80],[32,-80],[36,-76],[41,-74],[45,-67],
+             [47,-60],[51,-56],[60,-64],[63,-77],[58,-94],[69,-113],[71,-125]],
+  samerica: [[11,-72],[12,-62],[8,-60],[5,-52],[-1,-50],[-5,-36],[-13,-39],[-23,-41],
+             [-33,-53],[-38,-57],[-43,-65],[-52,-69],[-55,-67],[-50,-74],[-42,-73],
+             [-33,-72],[-23,-70],[-14,-76],[-5,-81],[2,-79],[8,-77]],
+  australia: [[-11,131],[-12,137],[-17,140],[-11,143],[-19,147],[-25,153],[-32,153],
+              [-38,150],[-38,141],[-35,136],[-32,134],[-34,123],[-35,116],[-31,116],
+              [-22,114],[-18,122],[-14,127]],
+  greenland: [[83,-32],[76,-20],[70,-22],[60,-43],[65,-53],[76,-60],[81,-45]]
+};
+
+const cv = document.getElementById("globe");
+const ctx = cv.getContext("2d");
+let W = 0, H = 0, R = 0, CX = 0, CY = 0, DPR = 1;
+let rotLon = -20, rotLat = 18;
+let spin = true;
+
+function resize() {
+  const box = cv.parentElement.getBoundingClientRect();
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(240, box.width); H = Math.max(200, box.height);
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  CX = W / 2; CY = H / 2;
+  R = Math.min(W, H) * 0.42;
+}
+
+const D2R = Math.PI / 180;
+
+/* Orthographic projection. Returns null when the point is on the far side. */
+function project(lat, lon) {
+  const p = lat * D2R, l = (lon - rotLon) * D2R, p0 = rotLat * D2R;
+  const cosc = Math.sin(p0) * Math.sin(p) + Math.cos(p0) * Math.cos(p) * Math.cos(l);
+  if (cosc < 0) return null;
+  return {
+    x: CX + R * Math.cos(p) * Math.sin(l),
+    y: CY - R * (Math.cos(p0) * Math.sin(p) - Math.sin(p0) * Math.cos(p) * Math.cos(l)),
+    z: cosc
+  };
+}
+
+/* Great-circle interpolation, so an arc follows the sphere rather than
+   cutting a straight line across the projected disc. */
+function greatCircle(lat1, lon1, lat2, lon2, steps) {
+  const p1 = lat1 * D2R, l1 = lon1 * D2R, p2 = lat2 * D2R, l2 = lon2 * D2R;
+  const d = 2 * Math.asin(Math.sqrt(
+    Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin((l2 - l1) / 2) ** 2
+  ));
+  const pts = [];
+  if (d === 0 || !isFinite(d)) return [[lat1, lon1]];
+  for (let i = 0; i <= steps; i++) {
+    const f = i / steps;
+    const a = Math.sin((1 - f) * d) / Math.sin(d);
+    const b = Math.sin(f * d) / Math.sin(d);
+    const x = a * Math.cos(p1) * Math.cos(l1) + b * Math.cos(p2) * Math.cos(l2);
+    const y = a * Math.cos(p1) * Math.sin(l1) + b * Math.cos(p2) * Math.sin(l2);
+    const z = a * Math.sin(p1) + b * Math.sin(p2);
+    pts.push([Math.atan2(z, Math.sqrt(x * x + y * y)) / D2R, Math.atan2(y, x) / D2R]);
+  }
+  return pts;
+}
+
+function impColor(v, alpha) {
+  const a = alpha === undefined ? 1 : alpha;
+  if (v < 0.02) return `rgba(76,154,255,${a})`;
+  if (v < 0.25) return `rgba(232,163,61,${a})`;
+  if (v < 0.55) return `rgba(217,95,75,${a})`;
+  return `rgba(142,47,63,${a})`;
+}
+
+/* Countries that host at least one company, by operating location. */
+const OCCUPIED = new Set();
+for (const n of NODES) {
+  let best = null, bestD = Infinity;
+  for (const c of COUNTRIES) {
+    if (c.code === "ROW" || c.code === "EU") continue;
+    const d = (c.lat - n.lat) ** 2 + (c.lon - n.lon) ** 2;
+    if (d < bestD) { bestD = d; best = c.code; }
+  }
+  if (best && bestD < 400) OCCUPIED.add(best);
+}
+
+let hoverNode = null;
+
+function draw(state) {
+  ctx.clearRect(0, 0, W, H);
+
+  /* --- ocean disc with a limb gradient --- */
+  const g = ctx.createRadialGradient(CX - R * 0.3, CY - R * 0.35, R * 0.1, CX, CY, R);
+  g.addColorStop(0, "#16243c");
+  g.addColorStop(0.72, "#101a2c");
+  g.addColorStop(1, "#0a1220");
+  ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI * 2);
+  ctx.fillStyle = g; ctx.fill();
+
+  /* --- atmospheric limb --- */
+  ctx.beginPath(); ctx.arc(CX, CY, R + 1.5, 0, Math.PI * 2);
+  ctx.strokeStyle = "rgba(76,154,255,0.28)"; ctx.lineWidth = 2; ctx.stroke();
+
+  /* --- graticule --- */
+  ctx.strokeStyle = "rgba(34,48,76,0.85)"; ctx.lineWidth = 0.6;
+  for (let lat = -60; lat <= 60; lat += 30) {
+    ctx.beginPath(); let started = false;
+    for (let lon = -180; lon <= 180; lon += 3) {
+      const p = project(lat, lon);
+      if (!p) { started = false; continue; }
+      if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  }
+  for (let lon = -180; lon < 180; lon += 30) {
+    ctx.beginPath(); let started = false;
+    for (let lat = -88; lat <= 88; lat += 3) {
+      const p = project(lat, lon);
+      if (!p) { started = false; continue; }
+      if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  }
+
+  /* --- landmasses ---
+     A ring that straddles the limb has some points culled, which leaves a
+     broken path: filling that closes the gap across the disc and produces
+     spurious triangles. So fill only when the whole ring is visible, and
+     stroke the visible segments otherwise. */
+  ctx.lineWidth = 1;
+  for (const ring of Object.values(LAND)) {
+    const proj = ring.map(([la, lo]) => project(la, lo));
+    const fullyVisible = proj.every(Boolean);
+    ctx.beginPath(); let started = false;
+    for (const p of proj) {
+      if (!p) { started = false; continue; }
+      if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y);
+    }
+    if (fullyVisible) {
+      ctx.closePath();
+      ctx.fillStyle = "rgba(29,44,70,0.72)"; ctx.fill();
+    }
+    ctx.strokeStyle = fullyVisible
+      ? "rgba(60,84,124,0.75)" : "rgba(60,84,124,0.5)";
+    ctx.stroke();
+  }
+
+  /* --- country markers: every country, empty ring when it hosts nobody --- */
+  for (const c of COUNTRIES) {
+    if (c.code === "ROW" || c.code === "EU") continue;
+    const p = project(c.lat, c.lon);
+    if (!p) continue;
+    const has = OCCUPIED.has(c.code);
+    ctx.beginPath(); ctx.arc(p.x, p.y, has ? 2.4 : 2, 0, Math.PI * 2);
+    if (has) { ctx.fillStyle = "rgba(139,154,181,0.5)"; ctx.fill(); }
+    else { ctx.strokeStyle = "rgba(93,108,135,0.45)"; ctx.lineWidth = 0.8; ctx.stroke(); }
+  }
+
+  /* --- supply arcs, drawn under the nodes --- */
+  for (const e of EDGES) {
+    const impS = state.impNow.get(e.s) || 0;
+    const hot = impS > 0.05;
+    const pts = greatCircle(e.sLat, e.sLon, e.tLat, e.tLon, 22);
+    ctx.beginPath(); let started = false, anyVisible = false;
+    for (const [la, lo] of pts) {
+      const p = project(la, lo);
+      if (!p) { started = false; continue; }
+      anyVisible = true;
+      if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y);
+    }
+    if (!anyVisible) continue;
+    ctx.setLineDash(e.o ? [] : [2, 3]);
+    ctx.lineWidth = hot ? 0.7 + 2.2 * e.d * impS : 0.5 + 0.9 * e.d;
+    ctx.strokeStyle = hot
+      ? impColor(impS, 0.75)
+      : (e.o ? "rgba(91,185,140,0.32)" : "rgba(93,108,135,0.26)");
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  /* --- company nodes --- */
+  const drawn = [];
+  for (const n of NODES) {
+    const p = project(n.lat, n.lon);
+    if (!p) continue;
+    const imp = state.impNow.get(n.id) || 0;
+    const failed = state.failed.has(n.id) && state.day >= state.failed.get(n.id);
+    const held = state.held.has(n.id);
+    const size = 2.2 + 3.4 * Math.sqrt(n.systemic) + (held ? 1.4 : 0);
+    drawn.push({ n, p, size });
+
+    if (imp > 0.08 && !failed) {
+      ctx.beginPath(); ctx.arc(p.x, p.y, size + 4 + 5 * imp, 0, Math.PI * 2);
+      ctx.fillStyle = impColor(imp, 0.13 + 0.16 * imp); ctx.fill();
+    }
+    if (held) {
+      ctx.beginPath(); ctx.arc(p.x, p.y, size + 2.6, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(230,234,242,0.75)"; ctx.lineWidth = 1.1; ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+    if (failed) {
+      ctx.fillStyle = "rgba(11,18,32,0.95)"; ctx.fill();
+      ctx.strokeStyle = "rgba(217,95,75,0.9)"; ctx.lineWidth = 1.3; ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(p.x - size, p.y - size); ctx.lineTo(p.x + size, p.y + size);
+      ctx.moveTo(p.x + size, p.y - size); ctx.lineTo(p.x - size, p.y + size);
+      ctx.strokeStyle = "rgba(217,95,75,0.9)"; ctx.lineWidth = 1; ctx.stroke();
+    } else {
+      ctx.fillStyle = impColor(imp); ctx.fill();
+    }
+  }
+
+  /* --- labels, collision-aware ---
+     The US and European clusters sit within a few degrees of one another,
+     so naive labelling stacks six tickers into an illegible smear. Candidates
+     are ranked (held positions first, then systemic weight) and a label is
+     dropped when its box overlaps one already placed: better to show four
+     readable tickers than twelve unreadable ones. */
+  ctx.font = "500 9.5px 'IBM Plex Mono', monospace";
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  const placed = [];
+  const candidates = drawn
+    .filter(d => state.held.has(d.n.id) || d.n.systemic >= 0.30
+                 || (state.impNow.get(d.n.id) || 0) > 0.25)
+    .sort((a, b) => {
+      const ha = state.held.has(a.n.id) ? 1 : 0, hb = state.held.has(b.n.id) ? 1 : 0;
+      if (ha !== hb) return hb - ha;
+      return b.n.systemic - a.n.systemic;
+    });
+  for (const d of candidates) {
+    const w = ctx.measureText(d.n.id).width;
+    const x = d.p.x + d.size + 3, y = d.p.y;
+    const box = { x1: x - 1, y1: y - 5, x2: x + w + 1, y2: y + 5 };
+    let clash = false;
+    for (const b of placed) {
+      if (box.x1 < b.x2 && box.x2 > b.x1 && box.y1 < b.y2 && box.y2 > b.y1) {
+        clash = true; break;
+      }
+    }
+    if (clash) continue;
+    placed.push(box);
+    const held = state.held.has(d.n.id);
+    /* A dark plate keeps the label legible over an arc or a landmass. */
+    ctx.fillStyle = "rgba(11,18,32,0.62)";
+    ctx.fillRect(box.x1, box.y1 + 1, box.x2 - box.x1, box.y2 - box.y1 - 2);
+    ctx.fillStyle = held ? "rgba(230,234,242,0.95)" : "rgba(193,204,222,0.8)";
+    ctx.fillText(d.n.id, x, y);
+    if (placed.length >= 16) break;
+  }
+
+  state.drawn = drawn;
+}
+</script>
+
+<script>
+"use strict";
+/* ===================================================================== */
+/*  UI wiring: portfolio builder, transport, news feed, stats             */
+/* ===================================================================== */
+
+const $ = id => document.getElementById(id);
+const fmtPct = v => (v >= 0 ? "+" : "") + (v * 100).toFixed(1) + "%";
+
+let weights = Object.assign({}, WORLD.defaultPortfolio);
+let sim = null;
+let step = 0;
+let playing = false;
+let relFilter = "all";
+let pfPath = null;
+
+/* ------------------------------------------------------------- controls */
+function readConfig() {
+  return {
+    years: +$("horizon").value,
+    seed: +$("seed").value,
+    intensity: +$("intensity").value
+  };
+}
+
+function rebuild(keepStep) {
+  const c = readConfig();
+  const frac = keepStep && sim ? step / Math.max(1, sim.n - 1) : 0;
+  sim = simulate(c.years, c.seed, c.intensity);
+  step = Math.round(frac * (sim.n - 1));
+  $("scrub").max = String(sim.n - 1);
+  $("scrub").value = String(step);
+  revalue();
+  renderNews();
+  renderHoldings();
+}
+
+/* Portfolio valuation is a reduction over the existing world, so editing
+   weights never re-simulates. */
+function revalue() {
+  pfPath = portfolioPath(sim, weights);
+  renderStats();
+  drawSpark();
+}
+
+/* -------------------------------------------------------------- holdings */
+function renderPicker() {
+  const sel = $("addPick");
+  const held = new Set(Object.keys(weights));
+  const opts = NODES
+    .filter(n => !held.has(n.id))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(n => `<option value="${n.id}">${n.id} — ${n.name}</option>`);
+  sel.innerHTML = opts.join("") || `<option value="">tutti inseriti</option>`;
+  sel.disabled = !opts.length;
+  $("addBtn").disabled = !opts.length;
+}
+
+function renderHoldings() {
+  const box = $("holdings");
+  const keys = Object.keys(weights).sort((a, b) => weights[b] - weights[a]);
+  if (!keys.length) {
+    box.innerHTML = `<p class="note">Nessuna posizione. Il portafoglio è
+      interamente liquido: la simulazione girerà comunque e il notiziario
+      mostrerà il mondo.</p>`;
+  } else {
+    box.innerHTML = keys.map(t => {
+      const n = NODE_BY_ID.get(t);
+      const failed = sim && sim.failedDay.has(t) && sim.calDays[step] >= sim.failedDay.get(t);
+      const px = sim && sim.px.has(t) ? sim.px.get(t)[step] : null;
+      const ret = px !== null ? (px / 100 - 1) : null;
+      const cls = ret === null ? "" : (ret >= 0 ? "pos" : "neg");
+      return `<div class="holding${failed ? " dead" : ""}">
+        <span class="tk" title="${n ? n.name : t}">${t}</span>
+        <span class="wt">${(weights[t] * 100).toFixed(1)}%</span>
+        <span class="px ${cls}" style="color:${ret === null ? "var(--ink-faint)" : (ret >= 0 ? "var(--ok)" : "var(--bad)")}">${
+          ret === null ? "n/d" : fmtPct(ret)}</span>
+        <input type="range" id="w-${t}" data-t="${t}" min="0" max="0.4" step="0.005"
+               value="${weights[t]}" aria-label="Peso ${t}">
+      </div>`;
+    }).join("");
+    box.querySelectorAll('input[type="range"]').forEach(el => {
+      el.addEventListener("input", () => {
+        weights[el.dataset.t] = +el.value;
+        if (+el.value <= 0) delete weights[el.dataset.t];
+        revalue(); renderHoldings(); renderPicker(); renderNews();
+      });
+    });
+  }
+  const total = Object.values(weights).reduce((a, b) => a + b, 0);
+  const unc = uncoveredWeight(weights);
+  const bits = [];
+  if (Math.abs(total - 1) > 0.005) {
+    bits.push(`Somma pesi ${(total * 100).toFixed(1)}% — il resto resta liquido.`);
+  }
+  if (unc > 0) bits.push(`${(unc * 100).toFixed(0)}% su titoli fuori dal mondo simulato.`);
+  $("weightWarn").textContent = bits.join(" ");
+  renderPicker();
+}
+
+$("addBtn").addEventListener("click", () => {
+  const t = $("addPick").value;
+  if (!t || weights[t]) return;
+  weights[t] = 0.05;
+  revalue(); renderHoldings(); renderNews();
+});
+$("normalize").addEventListener("click", () => {
+  const total = Object.values(weights).reduce((a, b) => a + b, 0);
+  if (total <= 0) return;
+  for (const k of Object.keys(weights)) weights[k] = weights[k] / total;
+  revalue(); renderHoldings();
+});
+$("equalise").addEventListener("click", () => {
+  const keys = Object.keys(weights);
+  if (!keys.length) return;
+  for (const k of keys) weights[k] = 1 / keys.length;
+  revalue(); renderHoldings();
+});
+$("clearPf").addEventListener("click", () => {
+  weights = {};
+  revalue(); renderHoldings(); renderNews();
+});
+
+/* ------------------------------------------------------------- transport */
+function setPlaying(on) {
+  playing = on;
+  $("play").textContent = on ? "Pausa" : (step >= sim.n - 1 ? "Riavvia" : "Avvia");
+}
+$("play").addEventListener("click", () => {
+  if (!playing && step >= sim.n - 1) step = 0;
+  setPlaying(!playing);
+});
+$("restart").addEventListener("click", () => { step = 0; setPlaying(false); syncStep(); });
+$("scrub").addEventListener("input", e => { step = +e.target.value; setPlaying(false); syncStep(); });
+$("reroll").addEventListener("click", () => {
+  $("seed").value = String(1 + Math.floor(Math.random() * 9999));
+  $("seedVal").textContent = $("seed").value;
+  step = 0; setPlaying(false); rebuild(false); syncStep();
+});
+
+for (const [id, valId, fmt] of [
+  ["horizon", "horizonVal", v => v + (v === 1 ? " anno" : " anni")],
+  ["intensity", "intensityVal", v => (+v).toFixed(1) + "×"],
+  ["seed", "seedVal", v => String(v)]
+]) {
+  $(id).addEventListener("input", e => { $(valId).textContent = fmt(+e.target.value); });
+  $(id).addEventListener("change", () => {
+    step = 0; setPlaying(false); rebuild(false); syncStep();
+  });
+}
+
+function syncStep() {
+  $("scrub").value = String(step);
+  renderStats(); renderNews(); renderHoldings(); drawSpark();
+}
+
+/* ----------------------------------------------------------------- stats */
+function renderStats() {
+  if (!sim) return;
+  const pf = pfPath[step];
+  const mkt = sim.mkt[step] / 100 - 1;
+  let peak = -Infinity, dd = 0;
+  for (let i = 0; i <= step; i++) {
+    const v = 1 + pfPath[i];
+    if (v > peak) peak = v;
+    if (peak > 0) dd = Math.min(dd, v / peak - 1);
+  }
+  const day = sim.calDays[step];
+  let failures = 0;
+  for (const [, d] of sim.failedDay) if (day >= d) failures++;
+  let stressed = 0;
+  for (const n of NODES) if (sim.imp.get(n.id)[step] > 0.05) stressed++;
+
+  const set = (id, v, cls) => {
+    const el = $(id); el.textContent = v;
+    el.className = "v num" + (cls ? " " + cls : "");
+  };
+  set("sPf", fmtPct(pf), pf >= 0 ? "pos" : "neg");
+  set("sMkt", fmtPct(mkt), mkt >= 0 ? "pos" : "neg");
+  set("sDd", fmtPct(dd), dd < -0.15 ? "neg" : "");
+  set("sBk", String(failures), failures ? "neg" : "");
+  set("sImp", stressed + "/" + NODES.length, stressed > 5 ? "neg" : "");
+  set("sUnc", (uncoveredWeight(weights) * 100).toFixed(0) + "%");
+
+  const activeCount = sim.events.filter(e => e.day <= day && day < e.endDay).length;
+  $("clockDay").textContent = "giorno " + day;
+  $("clockSub").textContent =
+    `anno ${(day / 365).toFixed(1)} · ${activeCount} eventi attivi`;
+  $("headMeta").textContent =
+    `seed ${sim.seed} · ${sim.events.length} eventi · turbolenza ${sim.intensity.toFixed(1)}×`;
+}
+
+/* ---------------------------------------------------------------- spark */
+const sc = $("spark"), sctx = sc.getContext("2d");
+function drawSpark() {
+  if (!sim) return;
+  const w = sc.parentElement.getBoundingClientRect().width;
+  const h = 54;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  sc.width = Math.round(w * dpr); sc.height = Math.round(h * dpr);
+  sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  sctx.clearRect(0, 0, w, h);
+
+  const series = [
+    { data: i => sim.mkt[i] / 100 - 1, color: "rgba(139,154,181,0.75)", fill: null },
+    { data: i => pfPath[i], color: "#4c9aff", fill: "rgba(76,154,255,0.16)" }
+  ];
+  let lo = 0, hi = 0;
+  for (let i = 0; i < sim.n; i++) {
+    for (const s of series) { const v = s.data(i); if (v < lo) lo = v; if (v > hi) hi = v; }
+  }
+  const pad = (hi - lo) * 0.1 || 0.05;
+  lo -= pad; hi += pad;
+  const X = i => (i / (sim.n - 1)) * w;
+  const Y = v => h - 6 - ((v - lo) / (hi - lo)) * (h - 12);
+
+  /* zero line */
+  sctx.beginPath(); sctx.moveTo(0, Y(0)); sctx.lineTo(w, Y(0));
+  sctx.strokeStyle = "rgba(34,48,76,0.9)"; sctx.lineWidth = 1; sctx.stroke();
+
+  for (const s of series) {
+    if (s.fill) {
+      sctx.beginPath(); sctx.moveTo(0, Y(0));
+      for (let i = 0; i < sim.n; i++) sctx.lineTo(X(i), Y(s.data(i)));
+      sctx.lineTo(X(sim.n - 1), Y(0)); sctx.closePath();
+      sctx.fillStyle = s.fill; sctx.fill();
+    }
+    sctx.beginPath();
+    for (let i = 0; i < sim.n; i++) {
+      const x = X(i), y = Y(s.data(i));
+      i ? sctx.lineTo(x, y) : sctx.moveTo(x, y);
+    }
+    sctx.strokeStyle = s.color; sctx.lineWidth = 1.4; sctx.stroke();
+  }
+
+  /* playhead + emphasised endpoint */
+  const px = X(step);
+  sctx.beginPath(); sctx.moveTo(px, 0); sctx.lineTo(px, h);
+  sctx.strokeStyle = "rgba(230,234,242,0.45)"; sctx.lineWidth = 1; sctx.stroke();
+  sctx.beginPath(); sctx.arc(px, Y(pfPath[step]), 2.8, 0, Math.PI * 2);
+  sctx.fillStyle = "#4c9aff"; sctx.fill();
+}
+
+/* ----------------------------------------------------------------- news */
+document.querySelectorAll(".chip").forEach(c => {
+  c.addEventListener("click", () => {
+    relFilter = c.dataset.rel;
+    document.querySelectorAll(".chip").forEach(o =>
+      o.setAttribute("aria-pressed", String(o.dataset.rel === relFilter)));
+    renderNews();
+  });
+});
+
+function renderNews() {
+  if (!sim) return;
+  const day = sim.calDays[step];
+  const held = new Set(Object.keys(weights));
+  const rows = [];
+  for (let i = sim.events.length - 1; i >= 0; i--) {
+    const ev = sim.events[i];
+    if (ev.day > day) continue;
+    const rel = relevanceOf(ev, held);
+    if (relFilter !== "all" && rel !== relFilter) continue;
+    const direct = ev.resolved.filter(t => held.has(t));
+    rows.push(`<article class="item ${ev.fav ? "fav" : "sev-" + ev.sev}">
+      <div class="stripe"></div>
+      <div>
+        <div class="meta">
+          <span class="num">g${ev.day}</span>
+          <span>${ev.category}</span>
+          <span class="rel ${rel}">${rel}</span>
+          ${ev.day + ev.dur > day ? '<span style="color:var(--warn)">in corso</span>' : ""}
+        </div>
+        <div class="hl">${ev.headline}</div>
+        ${direct.length ? `<div class="tgt">in portafoglio: ${direct.join(", ")}</div>` : ""}
+      </div>
+    </article>`);
+    if (rows.length >= 70) break;
+  }
+  $("news").innerHTML = rows.length
+    ? rows.join("")
+    : `<p class="empty">Nessuna notizia a questo punto del tempo con il
+        filtro «${relFilter}». Avvia la simulazione o allarga il filtro.</p>`;
+}
+
+/* ------------------------------------------------------- globe interaction */
+let dragging = false, lastX = 0, lastY = 0;
+cv.addEventListener("pointerdown", e => {
+  dragging = true; spin = false; lastX = e.clientX; lastY = e.clientY;
+  cv.classList.add("dragging"); cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener("pointerup", e => {
+  dragging = false; cv.classList.remove("dragging");
+  try { cv.releasePointerCapture(e.pointerId); } catch (_) {}
+});
+cv.addEventListener("pointermove", e => {
+  const r = cv.getBoundingClientRect();
+  if (dragging) {
+    rotLon -= (e.clientX - lastX) * 0.4;
+    rotLat = Math.max(-80, Math.min(80, rotLat + (e.clientY - lastY) * 0.3));
+    lastX = e.clientX; lastY = e.clientY;
+    hoverNode = null; $("hover").hidden = true;
+    return;
+  }
+  /* hit-test the drawn nodes */
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  let best = null, bestD = 144;
+  for (const d of (lastState.drawn || [])) {
+    const dd = (d.p.x - mx) ** 2 + (d.p.y - my) ** 2;
+    if (dd < bestD) { bestD = dd; best = d; }
+  }
+  hoverNode = best ? best.n : null;
+  const hv = $("hover");
+  if (!hoverNode) { hv.hidden = true; return; }
+  const imp = sim.imp.get(hoverNode.id)[step];
+  const px = sim.px.get(hoverNode.id)[step];
+  const failedOn = sim.failedDay.get(hoverNode.id);
+  const failed = failedOn !== undefined && sim.calDays[step] >= failedOn;
+  const geo = Object.entries(hoverNode.geo).sort((a, b) => b[1] - a[1])
+    .slice(0, 3).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(" · ");
+  hv.innerHTML = `
+    <div class="hn">${hoverNode.name}</div>
+    <div class="hr"><span>${hoverNode.id} · ${hoverNode.sector}</span></div>
+    <div class="hr"><span>prezzo</span><b>${fmtPct(px / 100 - 1)}</b></div>
+    <div class="hr"><span>compromissione</span><b>${(imp * 100).toFixed(0)}%</b></div>
+    <div class="hr"><span>scorte</span><b>${hoverNode.inv.toFixed(0)} gg</b></div>
+    <div class="hr"><span>sostituibilità</span><b>${(hoverNode.sub * 100).toFixed(0)}%</b></div>
+    <div class="hr"><span>beta</span><b>${hoverNode.beta.toFixed(2)}</b></div>
+    <div class="hr" style="margin-top:3px"><span>ricavi</span></div>
+    <div class="hr"><b style="font-size:10px">${geo}</b></div>
+    ${failed ? '<div class="hr" style="color:var(--bad);margin-top:3px"><b>FALLITA</b></div>' : ""}
+    ${weights[hoverNode.id] ? `<div class="hr" style="color:var(--accent);margin-top:3px"><span>peso</span><b>${(weights[hoverNode.id] * 100).toFixed(1)}%</b></div>` : ""}`;
+  hv.hidden = false;
+  const wrap = cv.parentElement.getBoundingClientRect();
+  hv.style.left = Math.min(mx + 14, wrap.width - 232) + "px";
+  hv.style.top = Math.min(my + 12, wrap.height - 150) + "px";
+});
+cv.addEventListener("pointerleave", () => { hoverNode = null; $("hover").hidden = true; });
+cv.addEventListener("dblclick", () => { spin = !spin; });
+
+/* --------------------------------------------------------------- loop */
+let lastState = { impNow: new Map(), failed: new Map(), held: new Set(), day: 0, drawn: [] };
+let acc = 0, lastT = performance.now();
+
+function frame(t) {
+  const dtMs = Math.min(t - lastT, 120);
+  lastT = t;
+
+  if (spin && !dragging) rotLon += dtMs * 0.004;
+
+  if (playing && sim) {
+    acc += dtMs * (+$("speed").value) * 0.06;
+    if (acc >= 1) {
+      const adv = Math.floor(acc); acc -= adv;
+      step = Math.min(sim.n - 1, step + adv);
+      if (step >= sim.n - 1) setPlaying(false);
+      syncStep();
+    }
+  }
+
+  if (sim) {
+    const impNow = new Map();
+    for (const n of NODES) impNow.set(n.id, sim.imp.get(n.id)[step]);
+    lastState = {
+      impNow, failed: sim.failedDay,
+      held: new Set(Object.keys(weights)),
+      day: sim.calDays[step],
+      drawn: lastState.drawn
+    };
+    draw(lastState);
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ---------------------------------------------------------------- boot */
+function boot() {
+  resize();
+  $("calibNote").textContent =
+    `Drift di mercato ${(CAL.marketDrift * 100).toFixed(0)}% atteso incondizionato, `
+    + `volatilità ${(CAL.marketVol * 100).toFixed(0)}%, idiosincratica `
+    + `${(CAL.idiosyncraticVol * 100).toFixed(0)}%, tasso base di default `
+    + `${(CAL.baseHazard * 100).toFixed(1)}%/anno. Il catalogo eventi porta un `
+    + `contributo netto di ${(DRIFT_COMP * 100).toFixed(2)}%/anno, compensato `
+    + `perché il drift dichiarato resti quello effettivo.`;
+  $("provNote").textContent = WORLD.meta.provenance;
+  $("validNote").textContent = WORLD.meta.notValidated + " " + WORLD.meta.referenceImplementation;
+
+  rebuild(false);
+  renderHoldings();
+  setPlaying(false);
+  syncStep();
+  requestAnimationFrame(frame);
+}
+
+window.addEventListener("resize", () => { resize(); drawSpark(); });
+boot();
+</script>

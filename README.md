@@ -100,6 +100,7 @@ piattaforma Python a 5 moduli sotto `platform/`:
 | 3 — Backtest Suite | Walk-forward strettamente causale; Max Sharpe, Min Variance, Risk Parity, HRP, Black-Litterman |
 | 4 — Supply Chain | Grafo S&P 500 da filing SEC e propagazione shock a due orologi (repricing veloce, rottura fisica lenta) |
 | 5 — SEC Aggregator | XBRL companyfacts normalizzato con catene di fallback sui tag; confronto multi-ticker |
+| 6 — World Simulation | Simulazione forward-looking: 54 aziende reali su un globo, eventi mondiali stocastici, contagio lungo la filiera, portafoglio modificabile durante la corsa |
 
 ### Avvio rapido
 
@@ -117,7 +118,14 @@ rende utilizzabili i moduli 3 e 4 senza chiavi API.
 ### Test
 
 ```bash
-PYTHONPATH=platform python -m pytest platform/tests -q    # 239 test
+PYTHONPATH=platform python -m pytest platform/tests -q    # 301 test
+```
+
+Il globo della Sezione 6 vive in `public/world/` ed è servito dal Worker.
+Rigeneralo dopo aver cambiato il dataset:
+
+```bash
+PYTHONPATH=platform python platform/build_world.py
 ```
 
 Architettura, valutazione delle repository esterne e limiti noti:
