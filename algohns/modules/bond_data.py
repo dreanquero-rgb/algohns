@@ -21,7 +21,9 @@ vendored here.
 from __future__ import annotations
 
 import csv
+import math
 import re
+from typing import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -74,24 +76,127 @@ def _clean(txt: str) -> str:
     return " ".join(txt.split()).strip()
 
 
-def _num(txt: str) -> float | None:
-    txt = _clean(txt)
-    if not txt or txt in ("-", "--", "n.a.", "N/A"):
+_MISSING = {"-", "--", "---", "n.a.", "n/a", "n.d.", "nd", "", "—"}
+
+
+def _num(txt: str, max_plausible: float | None = None) -> float | None:
+    """Parse a number that may be in English *or* Italian formatting.
+
+    Borsa Italiana is requested with ``lang=en`` but does not always honour
+    it, and the two conventions collide: stripping commas unconditionally
+    turns the Italian price ``101,25`` into ``10125`` — a hundredfold error
+    that produces a plausible-looking number and a silently wrong yield,
+    which is worse than a blank cell.
+
+    The separator roles are inferred from the pattern rather than assumed:
+
+    ==================  ============================  ==============
+    input               reading                       result
+    ==================  ============================  ==============
+    ``1.234,56``        dot thousands, comma decimal  1234.56
+    ``1,234.56``        comma thousands, dot decimal  1234.56
+    ``101,25``          decimal comma (1-2 decimals)  101.25
+    ``1,234``           thousands comma (3 digits)    1234.0
+    ==================  ============================  ==============
+    """
+    txt = _clean(txt).replace("\u00a0", " ").replace(" ", "")
+    if not txt or txt.lower() in _MISSING:
         return None
-    txt = txt.replace(",", "")  # borsaitaliana renders EN with thousands comma
+    txt = txt.replace("%", "").replace("+", "")
+    raw = txt
+    raw_seps = txt.count(",")
+
+    has_dot, has_comma = "." in txt, "," in txt
+    if has_dot and has_comma:
+        # Whichever separator appears last is the decimal one.
+        if txt.rfind(",") > txt.rfind("."):
+            txt = txt.replace(".", "").replace(",", ".")
+        else:
+            txt = txt.replace(",", "")
+    elif has_comma:
+        tail = txt.rsplit(",", 1)[1]
+        # Exactly three trailing digits reads as a thousands group; one or
+        # two reads as a decimal comma. Anything else is not a number.
+        txt = txt.replace(",", "") if len(tail) == 3 else txt.replace(",", ".")
+    elif has_dot:
+        tail = txt.rsplit(".", 1)[1]
+        if len(tail) == 3 and txt.count(".") >= 1 and len(txt.split(".")[0]) <= 3:
+            # Ambiguous "1.234": treat as thousands only when the leading
+            # group is short enough for that reading to make sense.
+            txt = txt.replace(".", "")
     try:
-        return float(txt)
+        value = float(txt)
     except ValueError:
         return None
 
+    # A three-digit group after a single separator is genuinely ambiguous:
+    # "102,340" is one hundred two thousand in English and 102.34 in Italian.
+    # The general rule above picks thousands, which is right for a count and
+    # absurd for a bond price. Where the caller knows the domain bound, fall
+    # back to the decimal reading rather than returning a number that is
+    # wrong by a factor of a thousand and looks fine.
+    if max_plausible is not None and value > max_plausible:
+        single = (has_comma != has_dot) and (
+            txt.count(".") + raw_seps == 1 or True
+        )
+        if single:
+            alt_txt = raw.replace(".", "@").replace(",", ".").replace("@", "")
+            try:
+                alt = float(alt_txt)
+            except ValueError:
+                alt = None
+            if alt is not None and alt <= max_plausible:
+                return alt
+    return value
+
+
+# Month names in both languages, since the page may serve either.
+_MONTHS = {
+    "gen": 1, "jan": 1, "feb": 2, "mar": 3, "apr": 4, "mag": 5, "may": 5,
+    "giu": 6, "jun": 6, "lug": 7, "jul": 7, "ago": 8, "aug": 8, "set": 9,
+    "sep": 9, "ott": 10, "oct": 10, "nov": 11, "dic": 12, "dec": 12,
+}
+_DATE_SEPS = re.compile(r"[/\-.\s]+")
+
 
 def _parse_date(txt: str) -> date | None:
+    """Parse a maturity date across the formats the page may serve.
+
+    The previous version accepted only four slash-separated numeric formats.
+    A dash- or dot-separated date, or one with a month name, returned None —
+    and a None maturity became a NaN ``Years`` column, which the screener's
+    years filter then used to exclude every row. An empty table caused by a
+    date format is very hard to diagnose from the UI, so this parser is
+    deliberately permissive and the loader reports how many rows it failed
+    on.
+    """
     txt = _clean(txt)
-    for fmt in ("%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%d", "%d/%m/%y"):
+    if not txt or txt.lower() in _MISSING:
+        return None
+
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y",
+                "%m/%d/%Y", "%d/%m/%y", "%d-%m-%y", "%Y/%m/%d"):
         try:
             return datetime.strptime(txt, fmt).date()
         except ValueError:
             continue
+
+    # Month-name forms: "01 lug 2034", "1-Jul-2034", "Jul 1 2034".
+    parts = [p for p in _DATE_SEPS.split(txt) if p]
+    if len(parts) == 3:
+        nums = [p for p in parts if p.isdigit()]
+        names = [p for p in parts if not p.isdigit()]
+        if len(nums) == 2 and len(names) == 1:
+            month = _MONTHS.get(names[0][:3].lower())
+            if month:
+                a, b = int(nums[0]), int(nums[1])
+                day, year = (a, b) if b > 31 else (b, a)
+                if year < 100:
+                    year += 2000 if year < 70 else 1900
+                try:
+                    return date(year, month, day)
+                except ValueError:
+                    return None
     return None
 
 
@@ -148,8 +253,8 @@ def fetch_mot_list(market: str, timeout: int = 25) -> list[ScreenerBond]:
                 market=market,
                 country=_ISIN_COUNTRY.get(isin[:2], cfg["country"]),
                 type=cfg["type"],
-                price=_num(_cell(tds, idx["price"]) or ""),
-                coupon=_num(_cell(tds, idx["coupon"]) or ""),
+                price=_num(_cell(tds, idx["price"]) or "", max_plausible=10_000),
+                coupon=_num(_cell(tds, idx["coupon"]) or "", max_plausible=100),
                 maturity=_parse_date(_cell(tds, idx["maturity"]) or ""),
             )
         )
@@ -279,3 +384,76 @@ class BondScreener:
 
 def tax_profile_options() -> dict[str, str]:
     return {k: v.name for k, v in TAX_PROFILES.items()}
+
+# ---------------------------------------------------------------------------
+# Screener filtering
+#
+# Extracted from the Streamlit page because that is where the empty-table bug
+# lived: UI glue is not covered by tests, so a filter that silently excluded
+# every row went unnoticed. As pure functions these are testable.
+# ---------------------------------------------------------------------------
+
+DEFAULT_MAX_YEARS = 30.0
+
+
+def screener_year_bounds(df: "pd.DataFrame", fallback: float = DEFAULT_MAX_YEARS) -> float:
+    """Upper bound for the years-to-maturity slider.
+
+    Returns `fallback` when the column is absent, empty, all-NaN, or
+    non-positive. The previous inline expression was
+    ``float(df["Years"].dropna().max() or 30)``, which looks like it guards
+    against a missing column but does not: ``max()`` on an all-NaN column
+    returns NaN, NaN is truthy, so ``or 30`` never fires and the bound became
+    NaN. A NaN bound collapses the slider and makes the range filter
+    all-False, which is how the screener came to report instruments loaded
+    and none shown.
+    """
+    if "Years" not in df:
+        return fallback
+    known = df["Years"].dropna()
+    if known.empty:
+        return fallback
+    top = float(known.max())
+    if not math.isfinite(top) or top <= 0:
+        return fallback
+    # Round UP, never to nearest: the bound doubles as the range filter's
+    # upper limit, and round(9.25, 1) is 9.2, which would put the
+    # longest-dated bond just outside its own slider and filter it out.
+    return math.ceil(top * 10.0) / 10.0
+
+
+def filter_screener(
+    df: "pd.DataFrame",
+    countries: "Sequence[str] | None" = None,
+    types: "Sequence[str] | None" = None,
+    years_range: "tuple[float, float] | None" = None,
+    min_net_ytm: float = 0.0,
+) -> "pd.DataFrame":
+    """Apply the screener's filters.
+
+    Instruments whose maturity did not parse are kept while the lower bound of
+    `years_range` sits at zero. Excluding them is what turned a date-format
+    change into an empty table with nothing to explain it; keeping them makes
+    a parsing problem show up as rows with blank yields, which is diagnosable.
+    """
+    if df.empty:
+        return df.copy()
+
+    mask = pd.Series(True, index=df.index)
+    if countries is not None and "Country" in df:
+        mask &= df["Country"].isin(list(countries))
+    if types is not None and "Type" in df:
+        mask &= df["Type"].isin(list(types))
+
+    if years_range is not None and "Years" in df:
+        lo, hi = years_range
+        if math.isfinite(lo) and math.isfinite(hi):
+            in_range = df["Years"].between(lo, hi)
+            if lo <= 0.0:
+                in_range = in_range | df["Years"].isna()
+            mask &= in_range
+
+    if min_net_ytm > 0 and "NetYTM%" in df:
+        mask &= df["NetYTM%"].fillna(-99.0) >= min_net_ytm
+
+    return df[mask].copy()

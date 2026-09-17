@@ -1,13 +1,21 @@
 """Streamlit page — Module 1: European Bond Screener & Multi-Tax Yield Engine."""
 from __future__ import annotations
 
+import math
+
 from datetime import date
 
 import pandas as pd
 import streamlit as st
 
 from algohns import charts as ch
-from algohns.modules.bond_data import MOT_LISTS, BondScreener, tax_profile_options
+from algohns.modules.bond_data import (
+    MOT_LISTS,
+    BondScreener,
+    filter_screener,
+    screener_year_bounds,
+    tax_profile_options,
+)
 from algohns.modules.bond_engine import TAX_PROFILES, Bond, BondEngine
 from algohns.modules.reference_data import us10y
 from algohns.ui import dependency_notice, header
@@ -60,22 +68,42 @@ with tab_screener:
     if df.empty:
         st.info("No instruments loaded."); st.stop()
 
+    # Report parsing coverage. The screener previously showed an empty table
+    # when maturity parsing failed, with nothing to say why; a count makes
+    # the upstream problem visible instead of the symptom.
+    if "Years" in df:
+        no_maturity = int(df["Years"].isna().sum())
+        if no_maturity == len(df):
+            st.error(
+                f"None of the {len(df)} instruments has a readable maturity "
+                "date, so yields and duration cannot be computed. The source "
+                "page's date format has probably changed — the rows are still "
+                "listed below."
+            )
+        elif no_maturity:
+            st.warning(
+                f"{no_maturity} of {len(df)} instruments have no readable "
+                "maturity date; they are listed but carry no yield or duration."
+            )
+    if "Price" in df:
+        no_price = int(df["Price"].isna().sum())
+        if no_price == len(df):
+            st.error(
+                f"None of the {len(df)} instruments has a readable price. "
+                "Yields cannot be computed without one."
+            )
+
     with st.expander("🔎 Filters", expanded=True):
         f = st.columns(4)
         countries = sorted(df["Country"].dropna().unique().tolist())
         sel_countries = f[0].multiselect("Country", countries, default=countries)
         types = sorted(df["Type"].dropna().unique().tolist())
         sel_types = f[1].multiselect("Type", types, default=types)
-        ymax = float(df["Years"].dropna().max() or 30)
-        yr = f[2].slider("Years to maturity", 0.0, round(ymax, 1), (0.0, round(ymax, 1)))
+        ymax = screener_year_bounds(df)
+        yr = f[2].slider("Years to maturity", 0.0, ymax, (0.0, ymax))
         min_net = f[3].number_input("Min Net YTM %", value=0.0, step=0.25)
 
-    mask = df["Country"].isin(sel_countries) & df["Type"].isin(sel_types)
-    if "Years" in df:
-        mask &= df["Years"].fillna(0).between(yr[0], yr[1])
-    if "NetYTM%" in df and min_net > 0:
-        mask &= df["NetYTM%"].fillna(-99) >= min_net
-    view = df[mask].copy()
+    view = filter_screener(df, sel_countries, sel_types, yr, min_net)
     st.session_state["bond_view"] = view
 
     m = st.columns(4)
