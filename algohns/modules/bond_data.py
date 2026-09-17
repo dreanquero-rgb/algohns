@@ -217,48 +217,119 @@ def fetch_mot_list(market: str, timeout: int = 25) -> list[ScreenerBond]:
     resp.raise_for_status()
     soup = _bs4.BeautifulSoup(resp.text, "html.parser")
 
-    table = soup.find("table")
-    if table is None:
+    # Pick the table with the most ISINs, not the first one on the page.
+    # Borsa Italiana pages carry navigation, filter and banner tables, so
+    # `find("table")` is a coin flip; counting ISINs identifies the
+    # instrument list regardless of where it sits in the document.
+    tables = soup.find_all("table")
+    if not tables:
         raise RuntimeError(f"no table on {market} page")
+    table = max(
+        tables,
+        key=lambda t: len(_ISIN_RE.findall(_clean(t.get_text()).upper()))
+        + len(_ISIN_RE.findall(str(t).upper())),
+    )
     rows = table.find_all("tr")
 
-    # Header column mapping (EN/IT tolerant).
-    headers_cells = [_clean(th.get_text()).lower() for th in (rows[0].find_all(["th", "td"]) if rows else [])]
-    idx = {"name": None, "isin": None, "price": None, "coupon": None, "maturity": None}
-    for i, h in enumerate(headers_cells):
-        if idx["name"] is None and any(k in h for k in ("name", "nome", "descr")):
-            idx["name"] = i
-        elif "isin" in h or "code" in h or "codice" in h:
-            idx["isin"] = i
-        elif idx["price"] is None and any(k in h for k in ("last", "ultimo", "price", "prezzo")):
-            idx["price"] = i
-        elif "coupon" in h or "cedola" in h:
-            idx["coupon"] = i
-        elif any(k in h for k in ("expiry", "scadenza", "maturity")):
-            idx["maturity"] = i
+    idx = _map_headers(rows)
 
-    out: list[ScreenerBond] = []
-    for tr in rows[1:]:
+    # Data rows, as text grids, so columns can be inferred from content when
+    # the header could not be mapped. Rows without an ISIN are not
+    # instruments (spacers, footers, nested tables).
+    data_rows = []
+    for tr in rows:
         tds = tr.find_all("td")
         if not tds:
             continue
         isin = _isin_from_row(tr, tds, idx["isin"])
         if not isin:
             continue
-        name = _cell(tds, idx["name"]) or (tr.find("a").get_text(strip=True) if tr.find("a") else isin)
+        data_rows.append((tr, tds, isin, [_clean(td.get_text()) for td in tds]))
+
+    grid = [cells for _, _, _, cells in data_rows]
+    # Fill whatever the header did not give us. Price is inferred from the
+    # column whose values sit consistently in the bond-price band; maturity
+    # from the column that parses as dates.
+    if idx["maturity"] is None:
+        idx["maturity"] = _infer_column(grid, _looks_like_future_date)
+    if idx["price"] is None:
+        idx["price"] = _infer_column(grid, _looks_like_price)
+
+    out: list[ScreenerBond] = []
+    for tr, tds, isin, cells in data_rows:
+        name = _cell(tds, idx["name"])
+        if not name:
+            link = tr.find("a")
+            name = link.get_text(strip=True) if link else isin
+        name = _clean(name)
+
+        price = _num(_cell(tds, idx["price"]) or "", max_plausible=10_000)
+        coupon = _num(_cell(tds, idx["coupon"]) or "", max_plausible=100)
+        maturity = _parse_date(_cell(tds, idx["maturity"]) or "")
+
+        # Italian government bond names carry the coupon and the maturity,
+        # and the list page may not have a maturity column at all — that
+        # lives on each bond's detail page. So the name is a real source
+        # here, not a desperate guess.
+        if maturity is None:
+            maturity = maturity_from_name(name)
+        if coupon is None:
+            coupon = coupon_from_name(name)
+        # Floaters and zero-coupon bills legitimately have no fixed coupon.
+        if coupon is None and cfg["type"] in ("govt",) and cfg["freq"] == 0:
+            coupon = 0.0
+
         out.append(
             ScreenerBond(
                 isin=isin,
-                name=_clean(name),
+                name=name,
                 market=market,
                 country=_ISIN_COUNTRY.get(isin[:2], cfg["country"]),
                 type=cfg["type"],
-                price=_num(_cell(tds, idx["price"]) or "", max_plausible=10_000),
-                coupon=_num(_cell(tds, idx["coupon"]) or "", max_plausible=100),
-                maturity=_parse_date(_cell(tds, idx["maturity"]) or ""),
+                price=price,
+                coupon=coupon,
+                maturity=maturity,
             )
         )
     return out
+
+
+_HEADER_KEYS = {
+    "name": ("name", "nome", "descr", "strumento", "instrument"),
+    "isin": ("isin", "codice", "code"),
+    "price": ("last", "ultimo", "prezzo", "price", "ultimo prezzo"),
+    "coupon": ("coupon", "cedola", "tasso", "rate"),
+    "maturity": ("expiry", "scadenza", "maturity", "matur"),
+}
+
+
+def _map_headers(rows, scan: int = 6) -> dict[str, int | None]:
+    """Locate the header row and map the columns we need.
+
+    Two changes from the version that returned all-None on the live page:
+    the header is searched across the first few rows rather than assumed to
+    be the first (a title row, a filter row or a nested table displaces it),
+    and each column is tested against every key independently. The previous
+    if/elif chain stopped at the first matching key, so a header like
+    "ISIN code" consumed the branch that a later column needed.
+    """
+    best: dict[str, int | None] = {k: None for k in _HEADER_KEYS}
+    best_score = 0
+    for tr in rows[:scan]:
+        cells = [_clean(c.get_text()).lower() for c in tr.find_all(["th", "td"])]
+        if not cells:
+            continue
+        found: dict[str, int | None] = {k: None for k in _HEADER_KEYS}
+        for i, h in enumerate(cells):
+            if not h:
+                continue
+            for key, needles in _HEADER_KEYS.items():
+                if found[key] is None and any(n in h for n in needles):
+                    found[key] = i
+        score = sum(1 for v in found.values() if v is not None)
+        if score > best_score:
+            best, best_score = found, score
+    return best
 
 
 def _cell(tds, i) -> str | None:
@@ -457,3 +528,128 @@ def filter_screener(
         mask &= df["NetYTM%"].fillna(-99.0) >= min_net_ytm
 
     return df[mask].copy()
+
+# ---------------------------------------------------------------------------
+# Resilient extraction
+#
+# The list page's header row could not be mapped at all — every column index
+# came back None, so prices and maturities were missing for all 45 rows while
+# ISINs came through fine. The difference: ISIN extraction scans the whole row
+# with a regex and never touches a column index. These helpers apply the same
+# principle to the remaining fields, so a header change or a reordered table
+# degrades instead of emptying the screener.
+# ---------------------------------------------------------------------------
+
+# Borsa Italiana encodes maturities in instrument names using Italian
+# two-letter month codes: "BTP-1AG34" is 1 August 2034.
+_IT_MONTH_CODES = {
+    "GE": 1, "FB": 2, "MZ": 3, "AP": 4, "MG": 5, "GN": 6,
+    "LG": 7, "AG": 8, "ST": 9, "OT": 10, "NV": 11, "DC": 12,
+}
+_CODES = "|".join(_IT_MONTH_CODES)
+# With a day: "BTP-1AG34", "CCT-EU 15OT30".
+_NAME_CODE_RE = re.compile(
+    rf"(?<![A-Z0-9])(\d{{1,2}})\s*({_CODES})\s*(\d{{2}})(?![0-9])", re.IGNORECASE
+)
+# Without a day, which is the common listing form: "BTP TF 3,85% LG34 EUR".
+_NAME_CODE_NODAY_RE = re.compile(
+    rf"(?<![A-Z0-9])({_CODES})\s*(\d{{2}})(?![0-9])", re.IGNORECASE
+)
+_NAME_DATE_RE = re.compile(r"\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})\b")
+_NAME_COUPON_RE = re.compile(r"(\d{1,2}(?:[.,]\d{1,3})?)\s*%")
+
+# Plausible clean-price band for a listed bond, used to identify the price
+# column by content when the header cannot be read.
+_PRICE_MIN, _PRICE_MAX = 1.0, 1000.0
+
+
+def maturity_from_name(name: str) -> date | None:
+    """Recover a maturity from the instrument name.
+
+    Worth having on its own merits: the MOT list page may not carry a
+    maturity column at all, since that lives on each bond's detail page.
+    Italian government bond names encode it either as a plain date or with
+    the two-letter month code convention ("BTP-1AG34").
+    """
+    if not name:
+        return None
+
+    m = _NAME_DATE_RE.search(name)
+    if m:
+        day, month, year = (int(g) for g in m.groups())
+        if year < 100:
+            year += 2000 if year < 70 else 1900
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            try:
+                return date(year, month, day)
+            except ValueError:
+                pass
+
+    m = _NAME_CODE_RE.search(name)
+    if m:
+        day = int(m.group(1))
+        month = _IT_MONTH_CODES[m.group(2).upper()]
+        year = 2000 + int(m.group(3))
+        try:
+            return date(year, month, day)
+        except ValueError:
+            return None
+
+    # Day-less form, which is how the listing usually writes it. Italian
+    # government bonds mature on the 1st or the 15th and the name does not
+    # say which, so the 1st is assumed. The cost is at most a fortnight of
+    # term: on a ten-year bond that moves the yield by well under a basis
+    # point, which is immaterial next to having no maturity at all.
+    m = _NAME_CODE_NODAY_RE.search(name)
+    if m:
+        month = _IT_MONTH_CODES[m.group(1).upper()]
+        year = 2000 + int(m.group(2))
+        try:
+            return date(year, month, 1)
+        except ValueError:
+            return None
+    return None
+
+
+def coupon_from_name(name: str) -> float | None:
+    """Recover a coupon rate from a name like "BTP TF 3,85% LG34"."""
+    if not name:
+        return None
+    m = _NAME_COUPON_RE.search(name)
+    if not m:
+        return None
+    value = _num(m.group(1), max_plausible=100)
+    return value if value is not None and 0 <= value <= 25 else None
+
+
+def _infer_column(
+    grid: "list[list[str]]", predicate, min_hits: int = 3, min_share: float = 0.5
+) -> int | None:
+    """Pick the column whose cells most often satisfy `predicate`.
+
+    Column-wise rather than per-row: a single row cannot tell a price from a
+    volume, but a column whose values are consistently in the price band
+    across forty rows can.
+    """
+    if not grid:
+        return None
+    width = max(len(r) for r in grid)
+    best, best_hits = None, 0
+    for col in range(width):
+        cells = [r[col] for r in grid if col < len(r)]
+        if not cells:
+            continue
+        hits = sum(1 for c in cells if predicate(c))
+        if hits >= min_hits and hits >= min_share * len(cells) and hits > best_hits:
+            best, best_hits = col, hits
+    return best
+
+
+def _looks_like_future_date(txt: str) -> bool:
+    d = _parse_date(txt)
+    return d is not None and d > date(1990, 1, 1)
+
+
+def _looks_like_price(txt: str) -> bool:
+    v = _num(txt, max_plausible=10_000)
+    return v is not None and _PRICE_MIN <= v <= _PRICE_MAX

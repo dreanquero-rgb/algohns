@@ -187,3 +187,172 @@ class TestScreenerFilter:
     def test_no_filters_returns_everything(self):
         df = _frame([1.0, 2.0, 3.0])
         assert len(filter_screener(df)) == 3
+
+
+class TestNameDerivedFields:
+    """Instrument names are a real source, not a fallback of desperation.
+
+    The MOT list page may carry no maturity column at all — that lives on
+    each bond's detail page — and Italian government bond names encode both
+    the coupon and the maturity.
+    """
+
+    @pytest.mark.parametrize("name,expected", [
+        # Day-less month code, which is how the listing usually writes it.
+        ("BTP TF 3,85% LG34 EUR", date(2034, 7, 1)),
+        ("BTP TF 0,95% MZ37 EUR", date(2037, 3, 1)),
+        ("BTP€i TF 1,50% MG29", date(2029, 5, 1)),
+        # With an explicit day.
+        ("BTP-1AG31", date(2031, 8, 1)),
+        ("CCT-EU 15OT30", date(2030, 10, 15)),
+        ("BOT 14GE27", date(2027, 1, 14)),
+        # Plain embedded date.
+        ("BTP 3.85% 01/07/2034", date(2034, 7, 1)),
+    ])
+    def test_maturity_from_name(self, name, expected):
+        from algohns.modules.bond_data import maturity_from_name
+
+        assert maturity_from_name(name) == expected
+
+    @pytest.mark.parametrize("name", ["", "nonsense EUR", "BTP", "CCT-EU"])
+    def test_no_maturity_in_name(self, name):
+        from algohns.modules.bond_data import maturity_from_name
+
+        assert maturity_from_name(name) is None
+
+    @pytest.mark.parametrize("name,expected", [
+        ("BTP TF 3,85% LG34 EUR", 3.85),
+        ("BTP 4.00% 2031", 4.0),
+        ("BTP€i TF 1,50% MG29", 1.5),
+    ])
+    def test_coupon_from_name(self, name, expected):
+        from algohns.modules.bond_data import coupon_from_name
+
+        assert coupon_from_name(name) == pytest.approx(expected)
+
+    @pytest.mark.parametrize("name", ["BOT 14GE27", "CCT-EU 15OT30", ""])
+    def test_no_coupon_in_name(self, name):
+        from algohns.modules.bond_data import coupon_from_name
+
+        assert coupon_from_name(name) is None
+
+
+class TestResilientScraping:
+    """Extraction must survive the page shapes that broke it.
+
+    The live symptom was 45 ISINs extracted with zero prices and zero
+    maturities: ISIN extraction scans the whole row with a regex and never
+    touches a column index, while price and maturity depended on a header
+    map that came back all-None. These fixtures reproduce each way that map
+    can fail.
+    """
+
+    ROWS = [
+        ("IT0005611741", "BTP TF 3,85% LG34 EUR", "101,25", "01/07/2034"),
+        ("IT0005560948", "BTP-1AG31", "103,10", "01/08/2031"),
+        ("IT0005425233", "BTP TF 0,95% MZ37 EUR", "72,48", "01/03/2037"),
+    ]
+
+    def _page(self, header, *, with_maturity=True, title_row=False, nav_table=False):
+        hdr = "".join(f"<th>{h}</th>" for h in header)
+        body = ""
+        for isin, name, price, mat in self.ROWS:
+            cells = [f'<a href="/borsa/scheda/{isin}.html">{name}</a>', price]
+            if with_maturity:
+                cells.append(mat)
+            # Decoys: a small percentage and a clock, which must not be read
+            # as the price column.
+            cells += ["0,15", "12:30"]
+            body += "<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>"
+        junk = "<tr><td colspan=5>Listino completo</td></tr>" if title_row else ""
+        nav = "<table><tr><td>Home</td><td>Mercati</td></tr></table>" if nav_table else ""
+        return f"<html><body>{nav}<table>{junk}<tr>{hdr}</tr>{body}</table></body></html>"
+
+    def _fetch(self, html, monkeypatch):
+        import types
+
+        from algohns.modules import bond_data as bd
+
+        class _Resp:
+            text = html
+
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(bd, "_requests",
+                            types.SimpleNamespace(get=lambda *a, **k: _Resp()))
+        monkeypatch.setattr(bd, "is_available", lambda m: True)
+        return bd.fetch_mot_list("BTP")
+
+    FULL_HEADER = ["Name", "Last price", "Maturity", "Var %", "Time"]
+
+    def test_mappable_header(self, monkeypatch):
+        out = self._fetch(self._page(self.FULL_HEADER), monkeypatch)
+        assert len(out) == 3
+        assert all(b.price is not None for b in out)
+        assert all(b.maturity is not None for b in out)
+        assert out[0].price == pytest.approx(101.25)
+
+    def test_unmappable_header_falls_back_to_content(self, monkeypatch):
+        """Generic labels: columns must be inferred from their values."""
+        out = self._fetch(self._page(["A", "B", "C", "D", "E"]), monkeypatch)
+        assert len(out) == 3
+        assert all(b.price is not None for b in out), "price column not inferred"
+        assert all(b.maturity is not None for b in out), "maturity column not inferred"
+
+    def test_no_maturity_column_uses_the_name(self, monkeypatch):
+        """The list page may simply not carry a maturity column."""
+        out = self._fetch(
+            self._page(["Name", "Last price", "Var %", "Time"], with_maturity=False),
+            monkeypatch,
+        )
+        assert len(out) == 3
+        assert all(b.maturity is not None for b in out)
+        assert out[0].maturity == date(2034, 7, 1)
+
+    def test_header_displaced_by_a_title_row(self, monkeypatch):
+        """The header is not always the first <tr>."""
+        out = self._fetch(self._page(self.FULL_HEADER, title_row=True), monkeypatch)
+        assert len(out) == 3
+        assert all(b.price is not None for b in out)
+
+    def test_layout_table_before_the_data_table(self, monkeypatch):
+        """`find("table")` picked navigation markup; ISIN count picks the list."""
+        out = self._fetch(self._page(self.FULL_HEADER, nav_table=True), monkeypatch)
+        assert len(out) == 3
+        assert {b.isin for b in out} == {r[0] for r in self.ROWS}
+
+    def test_decoy_columns_are_not_read_as_price(self, monkeypatch):
+        out = self._fetch(self._page(["A", "B", "C", "D", "E"]), monkeypatch)
+        # 0,15 (a var%) and 12:30 (a clock) sit in the same rows.
+        assert all(b.price > 50 for b in out)
+
+    def test_coupon_recovered_from_names(self, monkeypatch):
+        out = self._fetch(self._page(self.FULL_HEADER), monkeypatch)
+        by_isin = {b.isin: b for b in out}
+        assert by_isin["IT0005611741"].coupon == pytest.approx(3.85)
+        assert by_isin["IT0005425233"].coupon == pytest.approx(0.95)
+
+    def test_english_formatting(self, monkeypatch):
+        html = (
+            "<html><body><table>"
+            "<tr><th>Name</th><th>Last</th><th>Maturity</th></tr>"
+            '<tr><td><a href="/x/IT0005611741.html">BTP 3.85% 2034</a></td>'
+            "<td>101.25</td><td>2034-07-01</td></tr>"
+            "</table></body></html>"
+        )
+        out = self._fetch(html, monkeypatch)
+        assert out[0].price == pytest.approx(101.25)
+        assert out[0].maturity == date(2034, 7, 1)
+
+    def test_rows_without_an_isin_are_skipped(self, monkeypatch):
+        html = (
+            "<html><body><table>"
+            "<tr><th>Name</th><th>Last</th><th>Maturity</th></tr>"
+            "<tr><td>Totale</td><td>-</td><td>-</td></tr>"
+            '<tr><td><a href="/x/IT0005611741.html">BTP 3.85% LG34</a></td>'
+            "<td>101,25</td><td>01/07/2034</td></tr>"
+            "</table></body></html>"
+        )
+        out = self._fetch(html, monkeypatch)
+        assert len(out) == 1
