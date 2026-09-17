@@ -303,6 +303,109 @@ class Backtester:
             benchmark_curve=bench_curve,
         )
 
+    # ------------------------------------------------------- walk-forward
+    def run_walk_forward(
+        self,
+        method: OptMethod = "max_sharpe",
+        rebalance: Literal["M", "Q", "Y"] = "Q",
+        lookback: int = 504,
+        min_lookback: int = 252,
+        benchmark: pd.Series | None = None,
+        risk_free: float = 0.0,
+        cost_bps: float = 5.0,
+    ) -> BacktestResult:
+        """Re-optimise at each rebalance using ONLY data available then.
+
+        ``run()`` applies a fixed weight vector across the whole sample. When
+        those weights were fitted on that same sample — which is what the
+        optimizer does — the resulting curve is in-sample: it is the return
+        you would have earned knowing the optimal weights in advance, and it
+        flatters the strategy badly.
+
+        Here each rebalance sees ``prices.loc[:date]`` and nothing after it,
+        and the weights it produces earn the *following* period's returns.
+        A ``min_lookback`` is enforced because sizing a portfolio off a
+        handful of observations produces noise weights that flatter the early
+        curve precisely where it is least reliable; the portfolio holds cash
+        until enough history exists.
+
+        ``cost_bps`` is charged on turnover at each rebalance, so a strategy
+        that churns pays for it.
+        """
+        px = self.prices
+        if len(px) < min_lookback + 2:
+            raise ValueError(
+                f"Not enough history for a walk-forward run: {len(px)} rows, "
+                f"need at least {min_lookback + 2}. Lower the lookback or "
+                "widen the period."
+            )
+
+        rets = px.pct_change().fillna(0.0)
+        # Rebalance on the last trading day of each calendar period, but never
+        # before min_lookback rows exist.
+        periods = px.index.to_period(rebalance)
+        marks = [grp.index[-1] for _, grp in px.groupby(periods)]
+        first_ok = px.index[min_lookback - 1]
+        marks = [m for m in marks if m >= first_ok]
+        if not marks:
+            marks = [first_ok]
+
+        weights = pd.Series(0.0, index=px.columns)
+        port_ret = pd.Series(0.0, index=px.index, dtype=float)
+        cost_rate = cost_bps / 10_000.0
+        mark_set = set(marks)
+        applied: dict[str, float] = {}
+
+        for i, ts in enumerate(px.index):
+            if ts in mark_set:
+                window = px.loc[:ts].tail(lookback)
+                usable = [c for c in window.columns
+                          if window[c].notna().sum() >= min_lookback]
+                if len(usable) >= 2:
+                    try:
+                        fitted = PortfolioOptimizer(window[usable]).optimize(method)
+                    except Exception:  # noqa: BLE001 - keep prior weights
+                        fitted = None
+                    if fitted:
+                        new_w = pd.Series(fitted).reindex(px.columns).fillna(0.0)
+                        total = float(new_w.sum())
+                        if total > 0:
+                            new_w = new_w / total
+                            turnover = float((new_w - weights).abs().sum())
+                            port_ret.iloc[i] -= turnover * cost_rate
+                            weights = new_w
+                            applied = {k: float(v) for k, v in new_w.items() if v > 1e-6}
+            if i == 0:
+                continue
+            port_ret.iloc[i] += float((weights * rets.iloc[i]).sum())
+
+        if not applied:
+            raise ValueError(
+                "No rebalance produced usable weights — the lookback is "
+                "longer than the available history."
+            )
+
+        equity = self.initial_capital * (1 + port_ret).cumprod()
+        drawdown = equity / equity.cummax() - 1
+
+        bench_ret = None
+        bench_curve = None
+        if benchmark is not None:
+            aligned = benchmark.reindex(port_ret.index)
+            bench_ret = (aligned.pct_change().dropna() if aligned.max() > 5
+                         else aligned.dropna())
+            if not bench_ret.empty:
+                bench_curve = self.initial_capital * (1 + bench_ret).cumprod()
+
+        metrics = compute_metrics(port_ret, bench_ret, risk_free=risk_free)
+        return BacktestResult(
+            weights=applied,
+            metrics=metrics,
+            equity_curve=equity,
+            drawdown_curve=drawdown,
+            benchmark_curve=bench_curve,
+        )
+
     @staticmethod
     def _rebalanced_returns(rets: pd.DataFrame, target: pd.Series, freq: str) -> pd.Series:
         """Return portfolio returns with weights reset to target each period."""

@@ -183,10 +183,20 @@ class BondEngine:
         coupon = bond.coupon_amount()
         purchase = bond.clean_price + self.accrued_interest(bond)  # dirty price paid
 
+        # Time axis in COUPON PERIODS (ICMA / street convention), not calendar
+        # years. Actual semi-annual periods run 181-184 days, so a calendar
+        # ACT/365 axis prices a par bond several basis points away from its own
+        # coupon rate. Period counting reproduces QuantLib's
+        # ActualActual(ISMA) and Bloomberg.
+        prev_cpn = bond.previous_coupon_date()
+        first_cpn = dates[0] if dates else bond.maturity_date
+        period_days = max((first_cpn - prev_cpn).days, 1)
+        unexpired = max((first_cpn - bond.settlement_date).days, 0) / period_days
+
         times, gross, net = [], [], []
         rows = []
         for i, d in enumerate(dates):
-            t = (d - bond.settlement_date).days / self.day_count
+            t = (unexpired + i) / bond.frequency
             g = coupon
             net_coupon = coupon * (1 - tax.coupon_rate)
             is_last = i == len(dates) - 1
@@ -226,20 +236,31 @@ class BondEngine:
 
     # ------------------------------------------------------------------- YTM
     @staticmethod
-    def _pv(rate: float, times: np.ndarray, cfs: np.ndarray) -> float:
-        return float(np.sum(cfs / (1.0 + rate) ** times))
+    def _pv(rate: float, times: np.ndarray, cfs: np.ndarray, frequency: int = 2) -> float:
+        """Present value at a NOMINAL annual rate compounded `frequency` times.
 
-    def _solve_yield(self, price: float, times: np.ndarray, cfs: np.ndarray) -> float:
-        """Solve annual-compounded IRR such that PV(cfs) == price."""
+        Discounting `(1 + y)^t` instead would return the *effective* annual
+        yield: 4.04% for a 4% semi-annual par bond. A correct number, but not
+        the one bond markets quote, and it disagrees with every terminal.
+        """
+        yp = rate / frequency
+        return float(np.sum(cfs / (1.0 + yp) ** (times * frequency)))
+
+    def _solve_yield(
+        self, price: float, times: np.ndarray, cfs: np.ndarray, frequency: int = 2
+    ) -> float:
+        """Solve the nominal annual IRR, compounded `frequency` times, such
+        that PV(cfs) == price."""
 
         def npv(rate: float) -> float:
-            return self._pv(rate, times, cfs) - price
+            return self._pv(rate, times, cfs, frequency) - price
 
         # Try a robust bracketed solver first (SciPy brentq).
         try:
             from scipy.optimize import brentq  # local import; guarded below
 
-            return float(brentq(npv, -0.95, 5.0, maxiter=200, xtol=1e-10))
+            # Lower bound keeps (1 + y/f) positive for f up to 12.
+            return float(brentq(npv, -0.95, 5.0, maxiter=200, xtol=1e-12))
         except Exception:  # noqa: BLE001 - fall back to Newton
             return self._newton_yield(npv)
 
@@ -261,15 +282,39 @@ class BondEngine:
         return float(rate)
 
     # ----------------------------------------------------- duration/convexity
-    def _duration_convexity(self, ytm: float, times: np.ndarray, cfs: np.ndarray, price: float):
-        disc = (1.0 + ytm) ** times
-        pv = cfs / disc
-        weights = pv / price if price else pv * 0
-        macaulay = float(np.sum(times * weights))
-        modified = macaulay / (1.0 + ytm) if (1.0 + ytm) else 0.0
-        convexity = float(
-            np.sum(cfs * times * (times + 1) / (1.0 + ytm) ** (times + 2)) / price
-        ) if price else 0.0
+    def _duration_convexity(
+        self, ytm: float, times: np.ndarray, cfs: np.ndarray, price: float,
+        frequency: int = 2,
+    ):
+        """Macaulay duration, modified duration and convexity, annualised.
+
+        Worked in coupon periods with per-period yield ``y_p = y/f``, then
+        converted back to annual units:
+
+            ModDur    = [sum n_i CF_i /(1+y_p)^(n_i+1)] / (P * f)
+            Convexity = [sum n_i(n_i+1) CF_i /(1+y_p)^(n_i+2)] / (P * f^2)
+
+        Mixing a period-based yield with a calendar time axis - as the
+        previous version did - makes both measures inconsistent with the
+        quoted yield.
+        """
+        if not price:
+            return 0.0, 0.0, 0.0
+        yp = ytm / frequency
+        if yp <= -1.0:
+            return 0.0, 0.0, 0.0
+
+        periods = times * frequency
+        pv = cfs / (1.0 + yp) ** periods
+        total = float(np.sum(pv))
+        if total <= 0:
+            return 0.0, 0.0, 0.0
+
+        macaulay = float(np.sum(times * pv) / total)
+        d1 = float(np.sum(periods * cfs / (1.0 + yp) ** (periods + 1)))
+        d2 = float(np.sum(periods * (periods + 1) * cfs / (1.0 + yp) ** (periods + 2)))
+        modified = d1 / (total * frequency)
+        convexity = d2 / (total * frequency * frequency)
         return macaulay, modified, convexity
 
     # -------------------------------------------------------------- analyse
@@ -282,9 +327,11 @@ class BondEngine:
         if len(times) == 0:
             raise ValueError("Bond has no remaining cash-flows (check dates).")
 
-        ytm_gross = self._solve_yield(dirty, times, gross)
-        ytm_net = self._solve_yield(dirty, times, net)
-        macaulay, modified, convexity = self._duration_convexity(ytm_gross, times, gross, dirty)
+        ytm_gross = self._solve_yield(dirty, times, gross, bond.frequency)
+        ytm_net = self._solve_yield(dirty, times, net, bond.frequency)
+        macaulay, modified, convexity = self._duration_convexity(
+            ytm_gross, times, gross, dirty, bond.frequency
+        )
 
         total_tax = float(np.sum(gross - net))
         cap_gain = meta["capital_gain"]

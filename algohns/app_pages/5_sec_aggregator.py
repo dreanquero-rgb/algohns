@@ -115,20 +115,20 @@ if mode.startswith("📄"):
                 labels.append("Net income"); values.append(None); measures.append("total")
                 st.plotly_chart(ch.waterfall(labels, values, measures,
                                              title=f"How revenue becomes net income (FY{fy})"),
-                                use_container_width=True)
+                                width="stretch")
                 cc = st.columns(2)
                 with cc[0]:
                     trend = pd.DataFrame({"Revenue": rev, "Net income": ni}).dropna()
                     st.plotly_chart(ch.grouped_bar(trend, title="Revenue vs net income by year"),
-                                    use_container_width=True)
+                                    width="stretch")
                 with cc[1]:
                     marg = pd.DataFrame(index=rev.index)
                     if gp is not None: marg["Gross margin"] = (gp / rev * 100).round(2)
                     if oi is not None: marg["Operating margin"] = (oi / rev * 100).round(2)
                     marg["Net margin"] = (ni / rev * 100).round(2)
                     st.plotly_chart(ch.line(marg.dropna(how="all"), title="Margins (%)"),
-                                    use_container_width=True)
-            st.dataframe(_fmt_df(inc), use_container_width=True)
+                                    width="stretch")
+            st.dataframe(_fmt_df(inc), width="stretch")
 
         # ---- Balance sheet ---------------------------------------------------
         with tabs[1]:
@@ -139,11 +139,11 @@ if mode.startswith("📄"):
                 with cc[0]:
                     comp = pd.DataFrame({"Liabilities": liab, "Equity": eq}).dropna()
                     st.plotly_chart(ch.stacked_bar(comp, title="Capital structure by year"),
-                                    use_container_width=True)
+                                    width="stretch")
                 with cc[1]:
                     st.plotly_chart(ch.line(pd.DataFrame({"Total assets": assets}),
-                                            title="Total assets"), use_container_width=True)
-            st.dataframe(_fmt_df(bs), use_container_width=True)
+                                            title="Total assets"), width="stretch")
+            st.dataframe(_fmt_df(bs), width="stretch")
 
         # ---- Cash flow -------------------------------------------------------
         with tabs[2]:
@@ -157,14 +157,14 @@ if mode.startswith("📄"):
                 if fcf_ is not None: flows["Financing"] = fcf_
                 st.plotly_chart(ch.grouped_bar(flows.dropna(how="all"),
                                                title="Cash flows by activity"),
-                                use_container_width=True)
+                                width="stretch")
                 if capex is not None:
                     free = (ocf - capex).dropna()
                     st.plotly_chart(ch.bar([str(i) for i in free.index], free.values,
                                            title="Free cash flow (OCF − CapEx)",
                                            color_by_sign=True, height=300),
-                                    use_container_width=True)
-            st.dataframe(_fmt_df(cf), use_container_width=True)
+                                    width="stretch")
+            st.dataframe(_fmt_df(cf), width="stretch")
 
 # =============================================================================
 # COMPARE TICKERS
@@ -199,13 +199,13 @@ else:
                 if not head.empty:
                     # rows = line items on x, one series per ticker
                     st.plotly_chart(ch.grouped_bar(head, title=f"{key.replace('_',' ').title()} — key lines"),
-                                    use_container_width=True)
-                st.dataframe(_fmt_df(frame), use_container_width=True)
+                                    width="stretch")
+                st.dataframe(_fmt_df(frame), width="stretch")
         with tabs[-1]:
             rows = {t: agg.key_ratios(f) for t, f in facts_map.items()}
             ratios = pd.DataFrame(rows)
             st.plotly_chart(ch.grouped_bar(ratios.apply(pd.to_numeric, errors="coerce").dropna(how="all"),
-                                           title="Key ratios"), use_container_width=True)
-            st.dataframe(ratios, use_container_width=True)
+                                           title="Key ratios"), width="stretch")
+            st.dataframe(ratios, width="stretch")
 
 st.caption("Data © SEC EDGAR (data.sec.gov) XBRL company facts — no manual document download.")

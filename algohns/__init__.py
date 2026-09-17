@@ -1,4 +1,4 @@
-"""Algohns V12 — Quant Asset Manager OS (Python edition).
+"""Algohns — Alpaca Paper trading and quant research platform.
 
 A modular, glue-code architecture that integrates best-in-class open-source
 quant libraries into a single Streamlit-driven platform:

@@ -98,7 +98,7 @@ with tab_screener:
     # Sort defensively: a live feed with no priced bonds yields no yield column.
     table = (view.sort_values("NetYTM%", ascending=False, na_position="last")
              if "NetYTM%" in view.columns else view)
-    st.dataframe(table, use_container_width=True, hide_index=True,
+    st.dataframe(table, width="stretch", hide_index=True,
                  height=430, column_config=col_cfg)
     st.download_button("⬇️ Download CSV", view.to_csv(index=False).encode(),
                        file_name="algohns_bond_screener.csv", mime="text/csv")
@@ -121,7 +121,7 @@ with tab_curve:
                 ch.scatter(priced, x="Years", y="NetYTM%", label="Name", group="Country",
                            title="Yield curve — net YTM by maturity",
                            xtitle="Years to maturity", ytitle="Net YTM", suffix="%"),
-                use_container_width=True,
+                width="stretch",
             )
 
             c1, c2 = st.columns(2)
@@ -131,7 +131,7 @@ with tab_curve:
                 st.plotly_chart(
                     ch.hbar(top15["Name"], top15["NetYTM%"], title="Highest net yields",
                             height=380, value_fmt="{:.2f}", suffix="%"),
-                    use_container_width=True,
+                    width="stretch",
                 )
             # --- Tax drag: gross vs net --------------------------------------
             with c2:
@@ -143,7 +143,7 @@ with tab_curve:
                     columns={"YTM%": "Gross YTM", "NetYTM%": "Net YTM"})
                 st.plotly_chart(
                     ch.grouped_bar(cmp_df, title="Tax drag — gross vs net YTM", height=380),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             # --- Duration vs yield (risk/return of the bond book) -------------
@@ -151,7 +151,7 @@ with tab_curve:
                 ch.scatter(priced, x="ModDur", y="NetYTM%", label="Name", group="Country",
                            title="Risk vs reward — modified duration vs net YTM",
                            xtitle="Modified duration", ytitle="Net YTM", suffix="%", height=380),
-                use_container_width=True,
+                width="stretch",
             )
 
         # --- Real macro context: US 10Y since 1953 ---------------------------
@@ -160,7 +160,7 @@ with tab_curve:
             st.plotly_chart(
                 ch.line(y10.to_frame(), title="US 10-year Treasury yield — real history since 1953",
                         height=300),
-                use_container_width=True,
+                width="stretch",
             )
             st.caption("Real dataset bundled with the repo (monthly, 1953→today).")
 
@@ -216,9 +216,9 @@ with tab_calc:
             cfc = cf.set_index("date")[["gross_cf", "net_cf"]].rename(
                 columns={"gross_cf": "Gross cash-flow", "net_cf": "Net cash-flow"})
             st.plotly_chart(ch.grouped_bar(cfc, title="Cash-flow schedule — gross vs net after tax"),
-                            use_container_width=True)
+                            width="stretch")
         with st.expander("Cash-flow table"):
-            st.dataframe(cf, use_container_width=True, hide_index=True)
+            st.dataframe(cf, width="stretch", hide_index=True)
 
         ql = engine.quantlib_crosscheck(bond)
         with st.expander("QuantLib cross-check (independent verification)"):

@@ -48,7 +48,7 @@ function landingHTML() {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Algohns V12 — Quant Asset Manager OS</title>
+<title>Algohns</title>
 <style>
   :root { color-scheme: dark; }
   body { margin:0; min-height:100vh; display:grid; place-items:center; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
@@ -76,7 +76,7 @@ function landingHTML() {
       <path d="M53 78h22l9 18H70l-4-8H51l-4 8H33l27-56h14l-21 38Zm4-11h8l-3-8-5 8Z" fill="#F8FAFC" opacity=".95"/>
     </svg>
     <div class="badge">Algohns V12 · Python</div>
-    <h1>Quant Asset Manager OS</h1>
+    <h1>Algohns</h1>
     <p>The platform is being connected to its host. Set <code>APP_URL</code> in the Cloudflare
     Worker to your live Streamlit app and redeploy to point this domain at the dashboard.</p>
   </div>

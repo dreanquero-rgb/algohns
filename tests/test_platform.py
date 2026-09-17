@@ -28,10 +28,30 @@ def test_bond_engine_reprices_and_tax_ordering():
     corp = eng.analyse(bond, "IT_CORPORATE")
 
     # Gross YTM must reprice the bond to its dirty price.
+    #
+    # Discounting uses (1 + y/f)^(t*f): the engine quotes a NOMINAL annual
+    # yield compounded at the coupon frequency, which is the market
+    # convention. This assertion previously used (1 + y)^t, an effective
+    # annual rate, and so encoded the very convention that put a 4%
+    # semi-annual par bond at 4.0381% instead of 4.0000%.
+    f = bond.frequency
+
+    # (a) The solver itself is exact. Checked on unrounded internals, because
+    #     the public cash-flow table rounds years to 4dp and the yield to 6dp
+    #     for display, which alone costs ~2e-4 of repricing error.
+    from algohns.modules.bond_engine import TAX_PROFILES
+
+    times_x, cfs_x, _, meta = eng._cashflows(bond, TAX_PROFILES["GROSS"])
+    y_exact = eng._solve_yield(meta["purchase_dirty"], times_x, cfs_x, f)
+    assert eng._pv(y_exact, times_x, cfs_x, f) == pytest.approx(
+        meta["purchase_dirty"], abs=1e-9
+    )
+
+    # (b) The displayed table stays consistent within its own rounding.
     times = np.array([r["years"] for r in gross.cashflow_table])
     cfs = np.array([r["gross_cf"] for r in gross.cashflow_table])
-    pv = float(np.sum(cfs / (1 + gross.ytm_gross) ** times))
-    assert abs(pv - gross.dirty_price) < 1e-2
+    pv = float(np.sum(cfs / (1 + gross.ytm_gross / f) ** (times * f)))
+    assert abs(pv - gross.dirty_price) < 1e-3
 
     # Tax ordering: gross > 12.5% net > 26% net.
     assert gross.ytm_gross > gov.ytm_net > corp.ytm_net > 0

@@ -1,4 +1,4 @@
-/* Algohns V11 — Alpaca Paper Quant Asset Manager OS
+/* Algohns — Alpaca Paper trading platform
  * Vanilla JS SPA. No framework. No real-money execution.
  */
 

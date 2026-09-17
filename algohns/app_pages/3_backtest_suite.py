@@ -61,10 +61,10 @@ with tab_universe:
                 st.plotly_chart(
                     ch.hbar(counts.index, counts.values, title=f"Slice composition by {dim}",
                             height=300, value_fmt="{:.0f}"),
-                    use_container_width=True)
+                    width="stretch")
                 break
 
-        st.dataframe(results, use_container_width=True, hide_index=True, height=360)
+        st.dataframe(results, width="stretch", hide_index=True, height=360)
         syms = universe.tickers_from(results)
         chosen = st.multiselect("Select tickers to backtest", syms, default=syms[:8])
         if st.button("➡️ Send selection to backtest", type="primary", disabled=not chosen):
@@ -89,6 +89,23 @@ with tab_backtest:
     benchmark = c5.text_input("Benchmark", value="SPY")
     rebalance = c6.selectbox("Rebalance", ["Q", "M", "Y", "none"], index=0)
 
+    causal = st.toggle(
+        "Walk-forward (causale)", value=True,
+        help="Ri-ottimizza a ogni ribilanciamento usando solo i dati "
+             "disponibili a quella data. Disattivandolo, i pesi vengono "
+             "stimati su TUTTO il campione e poi riapplicati allo stesso "
+             "campione: la curva risultante è in-sample e mostra il "
+             "rendimento che avresti avuto conoscendo i pesi ottimali in "
+             "anticipo.",
+    )
+    if not causal:
+        st.warning(
+            "**Modalità in-sample.** I pesi sono stimati sull'intero periodo "
+            "e poi riapplicati allo stesso periodo: la curva sovrastima "
+            "sistematicamente ciò che era ottenibile. Utile per ispezionare "
+            "l'allocazione, non per valutare una strategia."
+        )
+
     if st.button("Run optimization & backtest", type="primary"):
         md = get_market_data()
         src = "stooq" if source.startswith("stooq") else "yfinance"
@@ -107,7 +124,16 @@ with tab_backtest:
                 bench_px = md.history(benchmark, period=period, source=src, start=start).iloc[:, 0]
             except Exception:  # noqa: BLE001
                 pass
-            result = Backtester(prices).run(weights, rebalance=rebalance, benchmark=bench_px)
+            bt = Backtester(prices)
+            if causal:
+                # Re-optimises at every rebalance on data available then.
+                result = Backtester(prices).run_walk_forward(
+                    method,
+                    rebalance=(rebalance if rebalance != "none" else "Q"),
+                    benchmark=bench_px,
+                )
+            else:
+                result = bt.run(weights, rebalance=rebalance, benchmark=bench_px)
         except Exception as exc:  # noqa: BLE001
             dependency_notice(exc); st.stop()
 
@@ -129,10 +155,10 @@ with tab_backtest:
         if result.benchmark_curve is not None:
             curve[benchmark.upper()] = result.benchmark_curve
         st.plotly_chart(ch.line(curve, title="Equity curve", height=380),
-                        use_container_width=True)
+                        width="stretch")
         st.plotly_chart(ch.area(result.drawdown_curve.rename("Drawdown"),
                                 title="Drawdown", negative=True),
-                        use_container_width=True)
+                        width="stretch")
 
         cc = st.columns(2)
         # ---- weights ---------------------------------------------------------
@@ -141,7 +167,7 @@ with tab_backtest:
             st.plotly_chart(
                 ch.hbar(wser.index, wser.values * 100, title="Optimized weights",
                         height=340, value_fmt="{:.1f}", suffix="%"),
-                use_container_width=True)
+                width="stretch")
             e = st.columns(3)
             e[0].metric("Exp. return", f"{expected['expected_return']*100:.2f}%")
             e[1].metric("Exp. vol", f"{expected['expected_volatility']*100:.2f}%")
@@ -150,7 +176,7 @@ with tab_backtest:
         with cc[1]:
             corr = prices.pct_change().dropna().corr()
             st.plotly_chart(ch.heatmap(corr, title="Correlation matrix", height=340),
-                            use_container_width=True)
+                            width="stretch")
 
         # ---- rolling 1y Sharpe ----------------------------------------------
         rets = result.equity_curve.pct_change().dropna()
@@ -158,7 +184,7 @@ with tab_backtest:
             roll = (rets.rolling(252).mean() / rets.rolling(252).std()) * np.sqrt(252)
             st.plotly_chart(ch.line(roll.dropna().rename("Rolling 1y Sharpe").to_frame(),
                                     title="Rolling 1-year Sharpe ratio", height=300),
-                            use_container_width=True)
+                            width="stretch")
 
         st.caption(f"Data source: {src} · {len(result.equity_curve)} trading days "
                    f"({result.equity_curve.index.min().date()} → {result.equity_curve.index.max().date()})")
@@ -191,24 +217,24 @@ with tab_history:
         st.plotly_chart(ch.line(h[["SP500"]].rename(columns={"SP500": "S&P 500"}),
                                 title=f"S&P 500 index since {start_year} (log scale)",
                                 height=380, log_y=True),
-                        use_container_width=True)
+                        width="stretch")
 
         dd = h["SP500"] / h["SP500"].cummax() - 1
         st.plotly_chart(ch.area(dd.rename("Drawdown"), title="Historical drawdown", negative=True),
-                        use_container_width=True)
+                        width="stretch")
 
         cols = st.columns(2)
         if "PE10" in h and h["PE10"].gt(0).any():
             with cols[0]:
                 pe = h.loc[h["PE10"] > 0, ["PE10"]].rename(columns={"PE10": "CAPE (PE10)"})
                 st.plotly_chart(ch.line(pe, title="Shiller CAPE ratio", height=300),
-                                use_container_width=True)
+                                width="stretch")
         if "Long Interest Rate" in h and h["Long Interest Rate"].gt(0).any():
             with cols[1]:
                 ir = h.loc[h["Long Interest Rate"] > 0, ["Long Interest Rate"]].rename(
                     columns={"Long Interest Rate": "Long interest rate %"})
                 st.plotly_chart(ch.line(ir, title="Long-term interest rate", height=300),
-                                use_container_width=True)
+                                width="stretch")
 
         # Decade returns — magnitude with polarity
         dec = h["SP500"].resample("10YS").first().pct_change().dropna() * 100
@@ -216,4 +242,4 @@ with tab_history:
             st.plotly_chart(
                 ch.bar([f"{d.year}s" for d in dec.index], dec.values,
                        title="Return by decade", suffix="%", color_by_sign=True, height=300),
-                use_container_width=True)
+                width="stretch")

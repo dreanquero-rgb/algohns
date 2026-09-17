@@ -1,0 +1,63 @@
+name: Deploy Worker
+
+# The Worker keeps the algohns.dreanquero.workers.dev domain and forwards to
+# the Streamlit app (see docs/DEPLOY.md). Deploys on push to main.
+#
+# Required repository secrets — Settings > Secrets and variables > Actions:
+#   CLOUDFLARE_API_TOKEN   "Edit Cloudflare Workers" template
+#   CLOUDFLARE_ACCOUNT_ID  from the Workers dashboard
+on:
+  push:
+    branches: [main]
+    paths:
+      - "_worker.js"
+      - "wrangler.toml"
+      - "package.json"
+      - "public/**"
+      - ".github/workflows/deploy-worker.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - run: node --check _worker.js
+
+      - name: Verify credentials are configured
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=""
+          [ -z "$TOKEN" ] && missing="$missing CLOUDFLARE_API_TOKEN"
+          [ -z "$ACCOUNT" ] && missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Secret mancanti:$missing"
+            echo "Aggiungili in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+
+      - name: Summary
+        run: |
+          {
+            echo "### Worker deployed"
+            echo ""
+            echo "Set APP_URL to the live Streamlit app so the domain forwards:"
+            echo ""
+            echo '```bash'
+            echo 'npx wrangler secret put APP_URL'
+            echo '```'
+            echo ""
+            echo "Health: https://algohns.dreanquero.workers.dev/__redirect_health"
+          } >> "$GITHUB_STEP_SUMMARY"

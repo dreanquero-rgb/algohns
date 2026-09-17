@@ -79,7 +79,7 @@ if st.button("Build supply-chain graph", type="primary"):
     try:
         out = settings.cache_dir / "supply_chain.html"
         analyzer.render_pyvis(graph, out)
-        components.html(out.read_text(), height=740, scrolling=True)
+        st.iframe(out.read_text(), height=740)
     except Exception as exc:  # noqa: BLE001
         st.caption(f"Interactive graph unavailable ({exc}). `pip install pyvis` to enable.")
 
@@ -90,29 +90,29 @@ if st.button("Build supply-chain graph", type="primary"):
             st.plotly_chart(
                 ch.hbar(ts["node"], ts["pagerank"], title="Systemic importance (PageRank)",
                         height=340, value_fmt="{:.3f}"),
-                use_container_width=True)
+                width="stretch")
         with cc[1]:
             st.plotly_chart(
                 ch.hbar(ts["node"], ts["contagion_reach"], slot=1,
                         title="Contagion reach (downstream nodes)", height=340,
                         value_fmt="{:.0f}"),
-                use_container_width=True)
+                width="stretch")
         with st.expander("Systemic metrics table"):
-            st.dataframe(ts, use_container_width=True, hide_index=True)
+            st.dataframe(ts, width="stretch", hide_index=True)
 
     # Relationship mix
     if all_rels:
         mix = pd.Series([r.relation for r in all_rels]).value_counts()
         st.plotly_chart(
             ch.donut(mix.index, mix.values, title="Relationship mix", height=300),
-            use_container_width=True)
+            width="stretch")
 
     if all_rels:
         with st.expander("All relationships"):
             st.dataframe(
                 pd.DataFrame([{"from": r.source, "to": r.target, "relation": r.relation,
                                "evidence": r.evidence} for r in all_rels]),
-                use_container_width=True, hide_index=True,
+                width="stretch", hide_index=True,
             )
 
 
@@ -129,5 +129,5 @@ with st.expander("🏛️ S&P 500 index composition (real data)", expanded=False
         st.plotly_chart(
             ch.hbar(sectors.index, sectors.values, title="Companies per GICS sector",
                     height=380, value_fmt="{:.0f}"),
-            use_container_width=True)
-        st.dataframe(const, use_container_width=True, hide_index=True, height=320)
+            width="stretch")
+        st.dataframe(const, width="stretch", hide_index=True, height=320)

@@ -2,7 +2,7 @@
   "name": "algohns-v11",
   "version": "11.0.0",
   "private": true,
-  "description": "Algohns V11 — Alpaca Paper Quant Asset Manager OS",
+  "description": "Algohns — Alpaca Paper trading and quant research platform",
   "scripts": {
     "deploy": "wrangler deploy --name algohns",
     "check": "node --check _worker.js"

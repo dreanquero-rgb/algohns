@@ -1,4 +1,4 @@
-# Algohns V12 — Quant Asset Manager OS (Python)
+# Algohns
 
 Algohns V12 is a modular **quant asset-management platform** that glues
 best-in-class open-source financial libraries into a single, high-performance
@@ -19,6 +19,7 @@ Worker, extending it from Alpaca paper-trading into a five-module quant OS.
 | 3 | **Backtesting & Portfolio Optimization** | `algohns/modules/backtest_suite.py` | Max Sharpe / Min-Variance / Risk Parity / Black-Litterman (PyPortfolioOpt) + full risk metrics (Sharpe, Sortino, Calmar, Max Drawdown, Alpha, Beta, VaR/CVaR). |
 | 4 | **S&P 500 Supply Chain Graph** | `algohns/modules/supply_chain_graph.py` | Mines 10-K/10-Q filings (sec-edgar-downloader / EDGAR API), extracts supplier–customer links (spaCy + RegEx), builds a directed graph (NetworkX) with contagion metrics and an interactive PyVis view. |
 | 5 | **Consolidated SEC Financial Statements** | `algohns/modules/sec_aggregator.py` | Pulls XBRL company facts from `data.sec.gov`, normalises Income Statement / Balance Sheet / Cash Flow, compares tickers side-by-side with key ratios. |
+| 6 | **World Simulation** | `algohns/modules/world_*.py` + `public/world/` | Forward-looking stress test: 54 real companies on an orthographic globe, a weighted-random world-event generator (49 templates, Poisson arrivals), two-clock supply-chain contagion, bankruptcy hazard, and a portfolio that stays editable mid-run because the simulated world is portfolio-independent. |
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full **repository map**
 (which upstream repos feed each module) and design rationale.

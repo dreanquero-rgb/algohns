@@ -1,7 +1,7 @@
 """Algohns V12 — Streamlit orchestrator.
 
 High-performance multipage dashboard that stitches the five platform modules
-into one Quant Asset Manager OS. Run with:
+into one platform. Run with:
 
     streamlit run app.py
 
@@ -16,7 +16,7 @@ from algohns.config import get_settings
 from algohns.ui import GOLD, inject_theme
 
 st.set_page_config(
-    page_title="Algohns V12 — Quant Asset Manager OS",
+    page_title="Algohns",
     page_icon="🅰️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -30,7 +30,7 @@ inject_theme()
 def home() -> None:
     settings = get_settings()
     st.markdown('<span class="algohns-badge">Algohns V12 · Python</span>', unsafe_allow_html=True)
-    st.title("Quant Asset Manager OS")
+    st.title("Algohns")
     st.caption(
         "European fixed income · Alpaca paper auto-trading · portfolio optimization · "
         "SEC supply-chain graph · consolidated financial statements."
@@ -95,6 +95,7 @@ pages = {
         st.Page("algohns/app_pages/3_backtest_suite.py", title="Backtest & Optimize", icon="🧪"),
         st.Page("algohns/app_pages/4_supply_chain.py", title="Supply Chain Graph", icon="🕸️"),
         st.Page("algohns/app_pages/5_sec_aggregator.py", title="SEC Statements", icon="📊"),
+        st.Page("algohns/app_pages/6_world_simulation.py", title="World Simulation", icon="🌍"),
     ],
 }
 

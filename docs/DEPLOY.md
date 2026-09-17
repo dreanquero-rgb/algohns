@@ -87,3 +87,34 @@ docker compose up --build # dashboard :8501 + redis + celery worker + beat
 
 Deploy the same `Dockerfile` to Render, Railway, Fly.io or any container host.
 Point the Cloudflare `APP_URL` at that host's URL exactly as in Part 2.
+
+---
+
+## Module 6 and the globe
+
+The World Simulation page embeds `public/world/index.html`, a self-contained
+93KB page with its world data inlined. Nothing extra to configure — it needs
+no API key and no network.
+
+After changing the universe, the supply links or the event catalogue,
+regenerate it:
+
+```bash
+python scripts/build_world.py
+```
+
+CI enforces this: the `world-data-is-current` job rebuilds the payload and
+fails if it differs from what is committed, because the globe inlines its
+data and would otherwise silently ship a stale copy.
+
+## Current status
+
+Nothing is deployed yet. The two remaining steps are both credential steps
+that cannot be done from a code session:
+
+1. **Streamlit Community Cloud** — connect the repo, main file `app.py`,
+   branch `main` (Part 1 above).
+2. **Cloudflare Worker** — add `CLOUDFLARE_API_TOKEN` and
+   `CLOUDFLARE_ACCOUNT_ID` as repository secrets so
+   `.github/workflows/deploy-worker.yml` can run, then set `APP_URL` to the
+   live Streamlit URL so the domain forwards to it.

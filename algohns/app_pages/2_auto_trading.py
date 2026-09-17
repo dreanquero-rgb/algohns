@@ -64,14 +64,14 @@ with tabs[0]:
             st.plotly_chart(
                 ch.donut(alloc_df["ETF"], alloc_df["Weight %"] / 100,
                          title="Strategic allocation", center=profile.label),
-                use_container_width=True)
+                width="stretch")
         with cc[1]:
             st.plotly_chart(
                 ch.hbar(alloc_df["Asset class"], alloc_df["Weight %"],
                         title="Weight by asset class", height=340,
                         value_fmt="{:.1f}", suffix="%"),
-                use_container_width=True)
-        st.dataframe(alloc_df, use_container_width=True, hide_index=True)
+                width="stretch")
+        st.dataframe(alloc_df, width="stretch", hide_index=True)
         st.success("Profile saved — use it in the **Profile Backtest** and **Paper Trading** tabs.")
 
 # =============================================================================
@@ -104,11 +104,11 @@ with tabs[1]:
                     st.plotly_chart(
                         ch.line(res.equity_curve.rename("Portfolio").to_frame(),
                                 title=f"Equity curve — {profile.label} allocation"),
-                        use_container_width=True)
+                        width="stretch")
                     st.plotly_chart(
                         ch.area(res.drawdown_curve.rename("Drawdown"),
                                 title="Drawdown", negative=True),
-                        use_container_width=True)
+                        width="stretch")
             except Exception as exc:  # noqa: BLE001
                 dependency_notice(exc)
 
@@ -134,7 +134,7 @@ with tabs[2]:
                 c[0].metric("Equity", f"${snap['equity']:,.2f}")
                 c[1].metric("Cash", f"${snap['cash']:,.2f}")
                 c[2].metric("Buying power", f"${snap['buying_power']:,.2f}")
-                st.dataframe(pd.DataFrame(snap["positions"]), use_container_width=True, hide_index=True) \
+                st.dataframe(pd.DataFrame(snap["positions"]), width="stretch", hide_index=True) \
                     if snap["positions"] else st.info("No open positions.")
             except Exception as exc:  # noqa: BLE001
                 st.error(f"Alpaca error: {exc}")
@@ -151,7 +151,7 @@ with tabs[2]:
                          disabled=not settings.alpaca_configured):
                 try:
                     plan = engine.rebalance_to_weights(profile.ticker_allocation, dry_run=dry)
-                    st.dataframe(pd.DataFrame(plan), use_container_width=True, hide_index=True) \
+                    st.dataframe(pd.DataFrame(plan), width="stretch", hide_index=True) \
                         if plan else st.info("Already at target — no trades needed.")
                 except Exception as exc:  # noqa: BLE001
                     st.error(f"Rebalance error: {exc}")
@@ -188,7 +188,7 @@ with tabs[2]:
     with sub[3]:
         if st.button("Load order journal", disabled=not settings.alpaca_configured):
             orders = engine.list_orders(status="all", limit=50)
-            st.dataframe(pd.DataFrame(orders), use_container_width=True, hide_index=True) \
+            st.dataframe(pd.DataFrame(orders), width="stretch", hide_index=True) \
                 if orders else st.info("No orders.")
 
 # =============================================================================
