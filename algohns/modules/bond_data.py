@@ -556,6 +556,11 @@ _NAME_CODE_NODAY_RE = re.compile(
     rf"(?<![A-Z0-9])({_CODES})\s*(\d{{2}})(?![0-9])", re.IGNORECASE
 )
 _NAME_DATE_RE = re.compile(r"\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})\b")
+# "1 Ago 2034", "01 Agosto 2034", "1-Jul-2034" — full or abbreviated
+# month word between a day and a 4-digit year.
+_NAME_MONTHWORD_RE = re.compile(
+    r"\b(\d{1,2})[\s\-]+([A-Za-z]{3,9})[\s\-]+((?:19|20)\d{2})\b"
+)
 _NAME_COUPON_RE = re.compile(r"(\d{1,2}(?:[.,]\d{1,3})?)\s*%")
 
 # Plausible clean-price band for a listed bond, used to identify the price
@@ -584,6 +589,18 @@ def maturity_from_name(name: str) -> date | None:
                 return date(year, month, day)
             except ValueError:
                 pass
+
+    # Full month word: "Btp 1 Ago 2034", "1 Agosto 2034" (rendimentibtp style).
+    m = _NAME_MONTHWORD_RE.search(name)
+    if m:
+        day = int(m.group(1))
+        month = _MONTHS.get(m.group(2)[:3].lower())
+        year = int(m.group(3))
+        if month:
+            try:
+                return date(year, month, day)
+            except ValueError:
+                return None
 
     m = _NAME_CODE_RE.search(name)
     if m:

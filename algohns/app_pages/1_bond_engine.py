@@ -16,6 +16,7 @@ from algohns.modules.bond_data import (
     screener_year_bounds,
     tax_profile_options,
 )
+from algohns.modules.bond_providers import SOURCE_LABELS, load_universe
 from algohns.modules.bond_engine import TAX_PROFILES, Bond, BondEngine
 from algohns.modules.reference_data import us10y
 from algohns.ui import dependency_notice, header
@@ -28,15 +29,15 @@ header(
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def _universe(markets: tuple[str, ...]):
-    sc = BondScreener()
-    return sc.load_universe(list(markets))
+def _universe(source: str, markets: tuple[str, ...], csv_payload: str | None):
+    return load_universe(source, list(markets), csv_payload)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def _table(markets: tuple[str, ...], tax_key: str) -> tuple[pd.DataFrame, str]:
-    bonds, source = _universe(markets)
-    return BondScreener().build_table(bonds, tax_key=tax_key), source
+def _table(source: str, markets: tuple[str, ...], tax_key: str,
+           csv_payload: str | None) -> tuple[pd.DataFrame, str]:
+    bonds, status = _universe(source, markets, csv_payload)
+    return BondScreener().build_table(bonds, tax_key=tax_key), status
 
 
 tab_screener, tab_curve, tab_calc = st.tabs(
@@ -47,24 +48,62 @@ tab_screener, tab_curve, tab_calc = st.tabs(
 # TAB 1 — SCREENER
 # =============================================================================
 with tab_screener:
-    top = st.columns([2, 2, 1])
-    markets = top[0].multiselect("Markets", list(MOT_LISTS.keys()), default=list(MOT_LISTS.keys()))
+    top = st.columns([2, 2, 2, 1])
+    source = top[0].selectbox(
+        "Data source", list(SOURCE_LABELS.keys()),
+        format_func=lambda k: SOURCE_LABELS[k],
+        help="rendimentibtp.it copre tutti i BTP. Borsa Italiana copre "
+             "MOT/EuroMOT. CSV è il fallback manuale se un sito è "
+             "irraggiungibile.",
+    )
+    markets = top[1].multiselect(
+        "Markets", list(MOT_LISTS.keys()), default=list(MOT_LISTS.keys()),
+        disabled=(source != "borsa"),
+        help="Rilevante solo per Borsa Italiana.",
+    )
     tax_opts = tax_profile_options()
-    tax_key = top[1].selectbox("Tax profile (applied to whole table)",
+    tax_key = top[2].selectbox("Tax profile (applied to whole table)",
                                list(tax_opts.keys()), format_func=lambda k: tax_opts[k])
-    if top[2].button("🔄 Refresh", help="Re-fetch the live universe"):
+    if top[3].button("🔄 Refresh", help="Re-fetch the live universe"):
         _universe.clear(); _table.clear()
 
+    csv_payload = None
+    if source == "csv":
+        up = st.file_uploader(
+            "Carica un CSV di obbligazioni (colonne: nome/ISIN, prezzo, "
+            "cedola, scadenza — intestazioni EN o IT)", type=["csv", "txt"],
+        )
+        pasted = st.text_area(
+            "…oppure incolla qui il CSV", height=120,
+            placeholder="ISIN,Nome,Prezzo,Cedola,Scadenza\nIT0005611741,BTP 3.85% 2034,101.25,3.85,01/07/2034",
+        )
+        if up is not None:
+            csv_payload = up.getvalue().decode("utf-8-sig", errors="replace")
+        elif pasted.strip():
+            csv_payload = pasted
+        if not csv_payload:
+            st.info("Carica o incolla un CSV per popolare lo screener.")
+            st.stop()
+
     try:
-        df, source = _table(tuple(markets) or tuple(MOT_LISTS.keys()), tax_key)
+        df, source_status = _table(source, tuple(markets) or tuple(MOT_LISTS.keys()),
+                                   tax_key, csv_payload)
     except Exception as exc:  # noqa: BLE001
         dependency_notice(exc); st.stop()
 
-    if source == "live":
-        st.success(f"🟢 Live data from Borsa Italiana — {len(df)} instruments.")
+    if source_status.startswith("live:"):
+        st.success(
+            f"🟢 Dati live da {SOURCE_LABELS.get(source, source)} — "
+            f"{len(df)} strumenti."
+        )
+    elif source == "csv":
+        st.success(f"🟢 CSV importato — {len(df)} strumenti.")
     else:
-        st.warning("🟡 Sample universe (exchange unreachable from here). On deploy this "
-                   "loads the live MOT/EuroMOT list automatically.")
+        st.warning(
+            "🟡 Universo di esempio: la sorgente scelta non è raggiungibile "
+            "da qui. Sul deploy carica la lista live automaticamente; in "
+            "alternativa usa «Importa CSV»."
+        )
     if df.empty:
         st.info("No instruments loaded."); st.stop()
 
