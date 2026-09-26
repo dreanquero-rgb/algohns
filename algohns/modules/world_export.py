@@ -126,9 +126,9 @@ def timeline_to_payload(
             ),
             "warnings": timeline.warnings,
             "dataProvenance": (
-                "Dataset curato a mano: sedi operative e forma della "
-                "geografia dei ricavi da conoscenza pubblica, percentuali "
-                "di dipendenza come assunzioni di modello."
+                "Hand-curated dataset: operating locations and the shape of "
+                "revenue geography from public knowledge, dependency "
+                "percentages as model assumptions."
             ),
         },
         "countries": [
@@ -203,18 +203,19 @@ def export_static_world() -> dict:
                 "impairmentPriceBeta": defaults.impairment_price_beta,
             },
             "provenance": (
-                "Dataset curato a mano: sedi operative e forma della geografia "
-                "dei ricavi da conoscenza pubblica; le percentuali di "
-                "dipendenza sono assunzioni di modello, non dati dichiarati."
+                "Hand-curated dataset: operating locations and the shape of "
+                "revenue geography from public knowledge; the dependency "
+                "percentages are model assumptions, not reported data."
             ),
             "notValidated": (
-                "Il modello di propagazione non e' stato confrontato con "
-                "episodi storici. Serve per confronti forward-looking fra "
-                "portafogli sullo stesso mondo, non come previsione."
+                "The propagation model has not been compared against "
+                "historical episodes. It is meant for forward-looking "
+                "comparisons between portfolios on the same world, not as a "
+                "forecast."
             ),
             "referenceImplementation": (
-                "Python e' l'implementazione di riferimento e testata; questa "
-                "copia nel browser e' l'anteprima interattiva."
+                "Python is the reference, tested implementation; this "
+                "in-browser copy is the interactive preview."
             ),
         },
         "countries": [

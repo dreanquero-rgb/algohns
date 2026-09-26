@@ -19,7 +19,7 @@ from algohns.ui import dependency_notice, header, paper_lock_banner
 
 header(
     "Alpaca Auto-Trading & Risk Profiling",
-    "Questionario → profilo di rischio → allocazione → backtest → esecuzione paper.",
+    "Questionnaire → risk profile → allocation → backtest → paper execution.",
     badge="Module 2",
 )
 paper_lock_banner()

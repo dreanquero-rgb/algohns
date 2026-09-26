@@ -255,8 +255,8 @@ def parse_bond_csv(data: str | bytes, *, bond_type: str = "govt",
         cols, header_row = _resolve_columns(reader[0]), 0
     if "name" not in cols and "isin" not in cols:
         raise ValueError(
-            "CSV non riconosciuto: serve almeno una colonna nome/descrizione "
-            "o ISIN. Intestazioni viste: " + ", ".join(reader[header_row][:8])
+            "CSV not recognised: at least a name/description or ISIN column "
+            "is required. Headers seen: " + ", ".join(reader[header_row][:8])
         )
 
     def cell(row, field):
@@ -323,7 +323,7 @@ class RendimentiBtpProvider:
     """
 
     key = "rendimentibtp"
-    label = "rendimentibtp.it — tutti i BTP"
+    label = "rendimentibtp.it — all BTPs"
 
     def __init__(self, url: str = RENDIMENTIBTP_URL, timeout: int = 25) -> None:
         self.url, self.timeout = url, timeout
@@ -348,7 +348,7 @@ class RendimentiBtpProvider:
 
 class CsvImportProvider:
     key = "csv"
-    label = "Importa CSV (incolla/carica)"
+    label = "Import CSV (paste/upload)"
 
     def __init__(self, payload: str | bytes | None = None) -> None:
         self.payload = payload
@@ -358,16 +358,16 @@ class CsvImportProvider:
 
     def fetch(self, markets: list[str] | None = None) -> list[ScreenerBond]:
         if self.payload is None:
-            raise RuntimeError("Nessun CSV fornito.")
+            raise RuntimeError("No CSV provided.")
         bonds = parse_bond_csv(self.payload)
         if not bonds:
-            raise RuntimeError("Nessuna riga valida nel CSV.")
+            raise RuntimeError("No valid rows in the CSV.")
         return bonds
 
 
 class SampleProvider:
     key = "sample"
-    label = "Universo di esempio (offline)"
+    label = "Sample universe (offline)"
 
     def available(self) -> bool:
         return True
@@ -384,7 +384,7 @@ def get_provider(key: str, **kwargs) -> BondProvider:
         "sample": SampleProvider,
     }
     if key not in registry:
-        raise KeyError(f"provider sconosciuto: {key!r}")
+        raise KeyError(f"unknown provider: {key!r}")
     return registry[key](**kwargs) if kwargs else registry[key]()
 
 
@@ -411,8 +411,8 @@ def load_universe(
 
 
 SOURCE_LABELS = {
-    "rendimentibtp": "rendimentibtp.it — tutti i BTP",
+    "rendimentibtp": "rendimentibtp.it — all BTPs",
     "borsa": "Borsa Italiana (MOT/EuroMOT)",
-    "csv": "Importa CSV (incolla/carica)",
-    "sample": "Universo di esempio (offline)",
+    "csv": "Import CSV (paste/upload)",
+    "sample": "Sample universe (offline)",
 }

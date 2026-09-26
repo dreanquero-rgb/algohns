@@ -15,7 +15,7 @@ from algohns.ui import dependency_notice, header
 
 header(
     "S&P 500 Supply Chain Graph Analytics",
-    "Mappa fornitori–clienti dai 10-K/10-Q e analisi del rischio di contagio.",
+    "Supplier–customer map from 10-K/10-Q filings and contagion-risk analysis.",
     badge="Module 4",
 )
 

@@ -127,7 +127,7 @@ class TestCsvImport:
         assert eu[0].maturity == date(2031, 10, 30)
 
     def test_unrecognised_csv_raises(self):
-        with pytest.raises(ValueError, match="non riconosciuto"):
+        with pytest.raises(ValueError, match="not recognised"):
             parse_bond_csv("foo,bar,baz\n1,2,3\n")
 
     def test_blank_rows_skipped(self):
@@ -141,7 +141,7 @@ class TestProviderRegistry:
         assert get_provider(key).key == key
 
     def test_unknown_provider_raises(self):
-        with pytest.raises(KeyError, match="sconosciuto"):
+        with pytest.raises(KeyError, match="unknown provider"):
             get_provider("nope")
 
     def test_sample_always_available(self):

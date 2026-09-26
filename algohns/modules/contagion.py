@@ -75,11 +75,11 @@ class SupplyEdge:
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.dependence <= 1.0:
-            raise ValueError(f"dependence fuori range [0,1]: {self.dependence}")
+            raise ValueError(f"dependence out of range [0,1]: {self.dependence}")
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValueError(f"confidence fuori range [0,1]: {self.confidence}")
+            raise ValueError(f"confidence out of range [0,1]: {self.confidence}")
         if self.source == self.target:
-            raise ValueError(f"self-loop non ammesso su {self.source}")
+            raise ValueError(f"self-loop not allowed on {self.source}")
 
 
 @dataclass
@@ -106,7 +106,7 @@ class CompanyNode:
     def __post_init__(self) -> None:
         if not 0.0 <= self.substitutability <= 1.0:
             raise ValueError(
-                f"{self.ticker}: substitutability fuori range [0,1]"
+                f"{self.ticker}: substitutability out of range [0,1]"
             )
         if self.inventory_days < 0:
             raise ValueError(f"{self.ticker}: inventory_days negativo")
@@ -147,16 +147,16 @@ class ShockScenario:
 
     def __post_init__(self) -> None:
         if not self.seeds:
-            raise ValueError("uno scenario richiede almeno un seed")
+            raise ValueError("a scenario requires at least one seed")
         bad = {k: v for k, v in self.seeds.items() if not 0.0 <= v <= 1.0}
         if bad:
-            raise ValueError(f"impairment iniziale fuori range [0,1]: {bad}")
+            raise ValueError(f"initial impairment out of range [0,1]: {bad}")
         if self.tick_days <= 0:
-            raise ValueError("tick_days deve essere positivo")
+            raise ValueError("tick_days must be positive")
         if self.horizon_days < self.tick_days:
-            raise ValueError("horizon_days deve coprire almeno un tick")
+            raise ValueError("horizon_days must cover at least one tick")
         if not 0.0 <= self.transmission <= 1.0:
-            raise ValueError(f"transmission fuori range [0,1]: {self.transmission}")
+            raise ValueError(f"transmission out of range [0,1]: {self.transmission}")
 
     @property
     def n_ticks(self) -> int:
@@ -242,7 +242,7 @@ class SupplyChainGraph:
 
     def node(self, ticker: str) -> CompanyNode:
         if ticker not in self.g:
-            raise KeyError(f"{ticker} non presente nel grafo")
+            raise KeyError(f"{ticker} not present in the graph")
         return self.g.nodes[ticker]["data"]
 
     def edges(
@@ -289,7 +289,7 @@ class SupplyChainGraph:
                 rev, alpha=0.05, beta=1.0, max_iter=2000, tol=1e-8, weight=wkey
             )
         except (nx.PowerIterationFailedConvergence, nx.NetworkXError) as exc:
-            log.info("Katz non convergente (%s): uso out-degree pesato.", exc)
+            log.info("Katz did not converge (%s): using weighted out-degree.", exc)
             total = defaultdict(float)
             for e in self.edges():
                 total[e.source] += e.dependence
@@ -435,18 +435,18 @@ class SupplyChainGraph:
         missing = [t for t in scenario.seeds if t not in self.g]
         if missing:
             warnings.append(
-                f"Seed non presenti nel grafo, ignorati: {', '.join(sorted(missing))}"
+                f"Seeds not present in the graph, ignored: {', '.join(sorted(missing))}"
             )
         live_seeds = {k: v for k, v in scenario.seeds.items() if k in self.g}
         if not live_seeds:
             raise ValueError(
-                "nessun seed dello scenario e' presente nel grafo: "
-                f"richiesti {sorted(scenario.seeds)}"
+                "no scenario seed is present in the graph: "
+                f"requested {sorted(scenario.seeds)}"
             )
         if self.observed_share < 0.5:
             warnings.append(
-                f"Solo il {self.observed_share:.0%} degli archi e' osservato in "
-                "filing: i risultati di secondo ordine sono indicativi."
+                f"Only {self.observed_share:.0%} of edges are observed in "
+                "filings: second-order results are indicative."
             )
 
         impairment = {t: 0.0 for t in self.g.nodes}
@@ -533,7 +533,7 @@ class SupplyChainGraph:
         shocks = self.propagate_market(scenario, **kw)
         total = sum(weights.values())
         if total <= 0:
-            raise ValueError("i pesi di portafoglio sommano a zero")
+            raise ValueError("portfolio weights sum to zero")
 
         contributions: dict[str, float] = {}
         uncovered = 0.0
@@ -565,7 +565,7 @@ class SupplyChainGraph:
         try:
             from pyvis.network import Network  # type: ignore
         except ImportError:
-            log.info("PyVis non installato: export HTML salta.")
+            log.info("PyVis not installed: skipping HTML export.")
             return None
 
         net = Network(height=height, width="100%", directed=True,
@@ -581,7 +581,7 @@ class SupplyChainGraph:
                 label=ticker,
                 title=(
                     f"{node.name or ticker}\nSettore: {node.sector or 'n/d'}\n"
-                    f"Paese (ricavi): {node.primary_country or 'n/d'}\n"
+                    f"Country (revenue): {node.primary_country or 'n/a'}\n"
                     f"Importanza sistemica: {imp:.2f}\n"
                     f"Scorte: {node.inventory_days:.0f} gg"
                 ),

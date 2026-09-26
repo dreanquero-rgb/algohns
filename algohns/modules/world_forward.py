@@ -106,14 +106,14 @@ class ForwardConfig:
     def __post_init__(self) -> None:
         if self.horizon_days < 30:
             raise ValueError(
-                f"orizzonte troppo corto: {self.horizon_days} giorni (minimo 30)"
+                f"horizon too short: {self.horizon_days} days (minimum 30)"
             )
         if self.horizon_days > 365 * 20:
-            raise ValueError("orizzonte massimo 20 anni")
+            raise ValueError("maximum horizon is 20 years")
         if self.event_intensity <= 0:
-            raise ValueError("event_intensity deve essere positiva")
+            raise ValueError("event_intensity must be positive")
         if self.market_vol < 0 or self.idiosyncratic_vol < 0:
-            raise ValueError("le volatilità non possono essere negative")
+            raise ValueError("volatilities cannot be negative")
         if not 0.0 <= self.base_hazard < 1.0:
             raise ValueError("base_hazard fuori range [0,1)")
 
@@ -156,7 +156,7 @@ class WorldTimeline:
         """
         total = sum(abs(w) for w in weights.values())
         if total <= 0:
-            raise ValueError("i pesi di portafoglio sommano a zero")
+            raise ValueError("portfolio weights sum to zero")
 
         held = {t: w / total for t, w in weights.items() if t in self.prices}
         cash = 1.0 - sum(held.values())
@@ -192,9 +192,9 @@ class WorldTimeline:
             payload = ev.to_dict()
             direct = held & set(ev.targets_resolved)
             payload["portfolioRelevance"] = (
-                "diretta" if direct
-                else "indiretta" if self._reaches_portfolio(ev, held)
-                else "mondo"
+                "direct" if direct
+                else "indirect" if self._reaches_portfolio(ev, held)
+                else "world"
             )
             payload["portfolioTargets"] = sorted(direct)
             out.append(payload)
@@ -242,7 +242,7 @@ def simulate_world(
     by_ticker = {c.ticker: c for c in COMPANIES}
     tickers = [t for t in graph.g.nodes if t in by_ticker]
     if not tickers:
-        raise ValueError("il grafo non contiene aziende del dataset mondiale")
+        raise ValueError("the graph contains no companies from the world dataset")
 
     n = config.n_steps
     dt = 1.0 / TRADING_DAYS
@@ -438,16 +438,16 @@ def simulate_world(
     warnings: list[str] = []
     if graph.observed_share < 0.5:
         warnings.append(
-            f"Solo il {graph.observed_share:.0%} degli archi è osservato in "
-            "filing: la propagazione di secondo ordine è indicativa."
+            f"Only {graph.observed_share:.0%} of edges are observed in "
+            "filings: second-order propagation is indicative."
         )
     warnings.append(
-        "Simulazione non validata su episodi storici: serve per test "
-        "forward-looking comparativi, non come previsione."
+        "Simulation not validated on historical episodes: it is meant for "
+        "comparative forward-looking tests, not as a forecast."
     )
     warnings.append(
-        f"Drift di mercato: {config.market_drift:.1%} atteso incondizionato "
-        f"(compensati {event_drag:+.2%}/anno di contributo netto degli eventi)."
+        f"Market drift: {config.market_drift:.1%} unconditional expectation "
+        f"({event_drag:+.2%}/yr net event contribution offset)."
     )
 
     return WorldTimeline(

@@ -50,7 +50,7 @@ def _load_facts(agg, ticker: str, prefer_live: bool):
 
 header(
     "Consolidated SEC Financial Statements",
-    "Bilanci interi (Income Statement · Balance Sheet · Cash Flow) con KPI e grafici.",
+    "Complete statements (Income Statement · Balance Sheet · Cash Flow) with KPIs and charts.",
     badge="Module 5",
 )
 

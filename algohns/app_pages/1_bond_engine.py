@@ -23,7 +23,7 @@ from algohns.ui import dependency_notice, header
 
 header(
     "European Bond Screener & Multi-Tax Engine",
-    "Rendimento netto, duration e convexity su BTP · Bund · OAT · Bonos · Eurobond.",
+    "Net yield, duration and convexity on BTPs · Bunds · OATs · Bonos · Eurobonds.",
     badge="Module 1",
 )
 
@@ -52,14 +52,14 @@ with tab_screener:
     source = top[0].selectbox(
         "Data source", list(SOURCE_LABELS.keys()),
         format_func=lambda k: SOURCE_LABELS[k],
-        help="rendimentibtp.it copre tutti i BTP. Borsa Italiana copre "
-             "MOT/EuroMOT. CSV è il fallback manuale se un sito è "
-             "irraggiungibile.",
+        help="rendimentibtp.it covers all BTPs. Borsa Italiana covers "
+             "MOT/EuroMOT. CSV is the manual fallback when a site is "
+             "unreachable.",
     )
     markets = top[1].multiselect(
         "Markets", list(MOT_LISTS.keys()), default=list(MOT_LISTS.keys()),
         disabled=(source != "borsa"),
-        help="Rilevante solo per Borsa Italiana.",
+        help="Only relevant for Borsa Italiana.",
     )
     tax_opts = tax_profile_options()
     tax_key = top[2].selectbox("Tax profile (applied to whole table)",
@@ -70,19 +70,19 @@ with tab_screener:
     csv_payload = None
     if source == "csv":
         up = st.file_uploader(
-            "Carica un CSV di obbligazioni (colonne: nome/ISIN, prezzo, "
-            "cedola, scadenza — intestazioni EN o IT)", type=["csv", "txt"],
+            "Upload a bond CSV (columns: name/ISIN, price, coupon, "
+            "maturity — English or Italian headers)", type=["csv", "txt"],
         )
         pasted = st.text_area(
-            "…oppure incolla qui il CSV", height=120,
-            placeholder="ISIN,Nome,Prezzo,Cedola,Scadenza\nIT0005611741,BTP 3.85% 2034,101.25,3.85,01/07/2034",
+            "…or paste the CSV here", height=120,
+            placeholder="ISIN,Name,Price,Coupon,Maturity\nIT0005611741,BTP 3.85% 2034,101.25,3.85,01/07/2034",
         )
         if up is not None:
             csv_payload = up.getvalue().decode("utf-8-sig", errors="replace")
         elif pasted.strip():
             csv_payload = pasted
         if not csv_payload:
-            st.info("Carica o incolla un CSV per popolare lo screener.")
+            st.info("Upload or paste a CSV to populate the screener.")
             st.stop()
 
     try:
@@ -93,16 +93,16 @@ with tab_screener:
 
     if source_status.startswith("live:"):
         st.success(
-            f"🟢 Dati live da {SOURCE_LABELS.get(source, source)} — "
-            f"{len(df)} strumenti."
+            f"🟢 Live data from {SOURCE_LABELS.get(source, source)} — "
+            f"{len(df)} instruments."
         )
     elif source == "csv":
-        st.success(f"🟢 CSV importato — {len(df)} strumenti.")
+        st.success(f"🟢 CSV imported — {len(df)} instruments.")
     else:
         st.warning(
-            "🟡 Universo di esempio: la sorgente scelta non è raggiungibile "
-            "da qui. Sul deploy carica la lista live automaticamente; in "
-            "alternativa usa «Importa CSV»."
+            "🟡 Sample universe: the selected source is not reachable from "
+            "here. On the live deployment it loads the live list "
+            "automatically; otherwise use “Import CSV”."
         )
     if df.empty:
         st.info("No instruments loaded."); st.stop()
@@ -244,7 +244,7 @@ with tab_calc:
         with c2:
             freq = st.selectbox("Coupon frequency", [1, 2, 4], index=1)
             clean_price = st.number_input("Clean price", value=98.4, step=0.1)
-            issue_price = st.number_input("Issue price (disaggio)", value=100.0, step=0.1)
+            issue_price = st.number_input("Issue price (issue discount)", value=100.0, step=0.1)
         with c3:
             settlement = st.date_input("Settlement date", value=date.today())
             maturity = st.date_input("Maturity date", value=date(2030, 3, 1))
@@ -272,11 +272,11 @@ with tab_calc:
         m[3].metric("Convexity", f"{res.convexity:.2f}")
         m2 = st.columns(4)
         m2[0].metric("Dirty price", f"{res.dirty_price:.3f}")
-        m2[1].metric("Accrued (rateo)", f"{res.accrued_interest:.3f}")
+        m2[1].metric("Accrued interest", f"{res.accrued_interest:.3f}")
         m2[2].metric("Total tax", f"{res.total_tax_paid:.2f}")
         m2[3].metric("Capital gain", f"{res.capital_gain:.2f}")
         if res.minusvalenza_credit > 0:
-            st.info(f"Capital loss → minusvalenza tax credit {res.minusvalenza_credit:.2f}.")
+            st.info(f"Capital loss → tax credit (minusvalenza) {res.minusvalenza_credit:.2f}.")
 
         cf = pd.DataFrame(res.cashflow_table)
         if not cf.empty:

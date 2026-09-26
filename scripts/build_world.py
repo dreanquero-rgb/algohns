@@ -34,13 +34,13 @@ def main() -> int:
     JSON_PATH.write_text(blob)
 
     if not HTML_PATH.exists():
-        print(f"! {HTML_PATH} assente: scritto solo {JSON_PATH.name}")
+        print(f"! {HTML_PATH} missing: wrote only {JSON_PATH.name}")
         return 1
 
     html = HTML_PATH.read_text()
     new_html, count = PATTERN.subn(lambda m: m.group(1) + blob + m.group(3), html, count=1)
     if count != 1:
-        print("! impossibile trovare 'const WORLD = ...;' in index.html")
+        print("! could not find 'const WORLD = ...;' in index.html")
         return 1
     HTML_PATH.write_text(new_html)
     print(f"✓ {JSON_PATH.relative_to(ROOT)}  {len(blob) / 1024:.1f} KB")

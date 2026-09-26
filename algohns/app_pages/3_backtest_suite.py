@@ -14,7 +14,7 @@ from algohns.ui import dependency_notice, header
 
 header(
     "Universe Explorer + Backtesting & Optimization",
-    "300k+ strumenti (FinanceDatabase) · Max Sharpe/Min-Var/Risk-Parity/Black-Litterman · storico dal 1871.",
+    "300k+ instruments (FinanceDatabase) · Max Sharpe/Min-Var/Risk-Parity/Black-Litterman · history since 1871.",
     badge="Module 3",
 )
 
@@ -90,20 +90,19 @@ with tab_backtest:
     rebalance = c6.selectbox("Rebalance", ["Q", "M", "Y", "none"], index=0)
 
     causal = st.toggle(
-        "Walk-forward (causale)", value=True,
-        help="Ri-ottimizza a ogni ribilanciamento usando solo i dati "
-             "disponibili a quella data. Disattivandolo, i pesi vengono "
-             "stimati su TUTTO il campione e poi riapplicati allo stesso "
-             "campione: la curva risultante è in-sample e mostra il "
-             "rendimento che avresti avuto conoscendo i pesi ottimali in "
-             "anticipo.",
+        "Walk-forward (causal)", value=True,
+        help="Re-optimizes at every rebalance using only the data available "
+             "at that date. When turned off, the weights are estimated on the "
+             "WHOLE sample and then reapplied to the same sample: the "
+             "resulting curve is in-sample and shows the return you would have "
+             "had if you had known the optimal weights in advance.",
     )
     if not causal:
         st.warning(
-            "**Modalità in-sample.** I pesi sono stimati sull'intero periodo "
-            "e poi riapplicati allo stesso periodo: la curva sovrastima "
-            "sistematicamente ciò che era ottenibile. Utile per ispezionare "
-            "l'allocazione, non per valutare una strategia."
+            "**In-sample mode.** The weights are estimated on the entire "
+            "period and then reapplied to the same period: the curve "
+            "systematically overstates what was actually achievable. Useful "
+            "for inspecting the allocation, not for evaluating a strategy."
         )
 
     if st.button("Run optimization & backtest", type="primary"):

@@ -214,11 +214,11 @@ class TestForwardSimulation:
         assert len(tl.tickers) == len(COMPANIES)
 
     def test_rejects_short_horizon(self, world):
-        with pytest.raises(ValueError, match="orizzonte troppo corto"):
+        with pytest.raises(ValueError, match="horizon too short"):
             ForwardConfig(horizon_days=10)
 
     def test_rejects_absurd_horizon(self, world):
-        with pytest.raises(ValueError, match="orizzonte massimo"):
+        with pytest.raises(ValueError, match="maximum horizon"):
             ForwardConfig(horizon_days=365 * 50)
 
     def test_bankruptcy_can_be_disabled(self, world):
@@ -239,15 +239,15 @@ class TestForwardSimulation:
                 path = tl.prices[ticker]
                 assert path[-1] < max(path) * 0.3
                 return
-        pytest.skip("nessun fallimento nei seed testati")
+        pytest.skip("no failure in the tested seeds")
 
     def test_warnings_disclose_non_validation(self, world):
         tl = simulate_world(world, ForwardConfig(horizon_days=400, seed=5))
-        assert any("non validata" in w for w in tl.warnings)
+        assert any("not validated" in w for w in tl.warnings)
 
     def test_warnings_disclose_drift_compensation(self, world):
         tl = simulate_world(world, ForwardConfig(horizon_days=400, seed=5))
-        assert any("compensati" in w for w in tl.warnings)
+        assert any("offset" in w for w in tl.warnings)
 
 
 class TestCalibration:
@@ -330,7 +330,7 @@ class TestPortfolioIndependence:
 
     def test_zero_weights_rejected(self, world):
         tl = simulate_world(world, ForwardConfig(horizon_days=400, seed=4))
-        with pytest.raises(ValueError, match="sommano a zero"):
+        with pytest.raises(ValueError, match="weights sum to zero"):
             tl.portfolio_path({"AAPL": 0.0})
 
     def test_unknown_ticker_reported_as_uncovered(self, world):
@@ -354,12 +354,12 @@ class TestNewsFeed:
         """Hiding non-portfolio events would hide the whole mechanism."""
         tl = simulate_world(world, ForwardConfig(horizon_days=365 * 4, seed=6))
         relevance = {n["portfolioRelevance"] for n in tl.news_for(DEMO_PF)}
-        assert "mondo" in relevance
+        assert "world" in relevance
 
     def test_direct_relevance_flagged(self, world):
         tl = simulate_world(world, ForwardConfig(horizon_days=365 * 6, seed=6))
         news = tl.news_for(DEMO_PF)
-        direct = [n for n in news if n["portfolioRelevance"] == "diretta"]
+        direct = [n for n in news if n["portfolioRelevance"] == "direct"]
         assert direct
         for n in direct:
             assert set(n["portfolioTargets"]) & set(DEMO_PF)
@@ -367,7 +367,7 @@ class TestNewsFeed:
     def test_empty_portfolio_marks_everything_world(self, world):
         tl = simulate_world(world, ForwardConfig(horizon_days=365 * 2, seed=6))
         assert all(
-            n["portfolioRelevance"] == "mondo" for n in tl.news_for({})
+            n["portfolioRelevance"] == "world" for n in tl.news_for({})
         )
 
     def test_headlines_are_populated(self, world):
