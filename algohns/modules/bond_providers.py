@@ -32,6 +32,7 @@ from algohns.modules.bond_data import (
     _parse_date,
     coupon_from_name,
     fetch_mot_list,
+    load_lseg_bundled,
     load_sample,
     maturity_from_name,
 )
@@ -365,6 +366,29 @@ class CsvImportProvider:
         return bonds
 
 
+class LSEGBundledProvider:
+    """Real Italian sovereigns from a committed LSEG snapshot.
+
+    The LSEG connector serves the chat session, not the deployed app, so the
+    real data ships as a point-in-time snapshot (``scripts/build_lseg_dataset.py``)
+    rather than a live call. It carries LSEG bid yield / modified duration /
+    G-spread as cross-check columns beside the platform's ICMA engine.
+    Personal / educational use only — LSEG data carries redistribution terms.
+    """
+
+    key = "lseg"
+    label = "LSEG — Italian sovereign comparables (bundled)"
+
+    def available(self) -> bool:
+        return bool(load_lseg_bundled())
+
+    def fetch(self, markets: list[str] | None = None) -> list[ScreenerBond]:
+        bonds = load_lseg_bundled()
+        if not bonds:
+            raise RuntimeError("LSEG snapshot not bundled")
+        return bonds
+
+
 class SampleProvider:
     key = "sample"
     label = "Sample universe (offline)"
@@ -378,6 +402,7 @@ class SampleProvider:
 
 def get_provider(key: str, **kwargs) -> BondProvider:
     registry = {
+        "lseg": LSEGBundledProvider,
         "borsa": BorsaItalianaProvider,
         "rendimentibtp": RendimentiBtpProvider,
         "csv": CsvImportProvider,
@@ -411,6 +436,7 @@ def load_universe(
 
 
 SOURCE_LABELS = {
+    "lseg": "LSEG — Italian sovereign comparables (bundled)",
     "rendimentibtp": "rendimentibtp.it — all BTPs",
     "borsa": "Borsa Italiana (MOT/EuroMOT)",
     "csv": "Import CSV (paste/upload)",

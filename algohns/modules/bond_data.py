@@ -38,6 +38,7 @@ _requests = lazy_import("requests", pip_name="requests", reason="query Borsa Ita
 _bs4 = lazy_import("bs4", pip_name="beautifulsoup4", reason="parse Borsa Italiana HTML")
 
 _SAMPLE_CSV = get_settings().data_dir / "bonds_sample.csv"
+_LSEG_CSV = get_settings().data_dir / "lseg_btp_comparables.csv"
 
 # Public MOT / EuroMOT list pages. The same table parser handles all of them.
 MOT_LISTS: dict[str, dict] = {
@@ -67,6 +68,13 @@ class ScreenerBond:
     coupon: float | None       # annual %, e.g. 3.5
     maturity: date | None
     currency: str = "EUR"
+    # Optional provider-supplied analytics, carried through as cross-check
+    # columns. The platform's ICMA engine stays authoritative; these are
+    # only shown alongside it (e.g. LSEG bid yield / modified duration).
+    lseg_yield: float | None = None        # provider bid yield, annual %
+    lseg_mod_duration: float | None = None  # provider modified duration
+    gspread: float | None = None            # G-spread over swaps, bps
+    quote_date: str | None = None           # ISO date of the provider quote
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +384,46 @@ def load_sample() -> list[ScreenerBond]:
     return out
 
 
+def _f(v: str | None) -> float | None:
+    """Parse a CSV cell to float, treating blanks as missing."""
+    if v is None or str(v).strip() == "":
+        return None
+    try:
+        return float(v)
+    except ValueError:
+        return None
+
+
+def load_lseg_bundled() -> list[ScreenerBond]:
+    """Load the committed LSEG comparables snapshot (real Italian sovereigns).
+
+    A point-in-time LSEG export, pulled via the connector and committed by
+    ``scripts/build_lseg_dataset.py``. It carries LSEG's own bid yield,
+    modified duration and G-spread so the screener can cross-check them
+    against the platform's ICMA engine. Personal / educational use only —
+    LSEG data carries redistribution terms.
+    """
+    if not _LSEG_CSV.exists():
+        return []
+    out: list[ScreenerBond] = []
+    with _LSEG_CSV.open() as fh:
+        for r in csv.DictReader(fh):
+            out.append(
+                ScreenerBond(
+                    isin=r["ISIN"], name=r["Name"], market="lseg",
+                    country=r.get("Country", "IT"), type=r.get("Type", "govt"),
+                    price=_f(r.get("Price")), coupon=_f(r.get("Coupon")),
+                    maturity=_parse_date(r["Maturity"]) if r.get("Maturity") else None,
+                    currency=r.get("Currency", "EUR"),
+                    lseg_yield=_f(r.get("LSEGYield")),
+                    lseg_mod_duration=_f(r.get("LSEGModDur")),
+                    gspread=_f(r.get("GSpread")),
+                    quote_date=(r.get("QuoteDate") or None),
+                )
+            )
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Screener
 # ---------------------------------------------------------------------------
@@ -411,6 +459,14 @@ class BondScreener:
                     settlement: date | None = None) -> pd.DataFrame:
         """Compute the full screener DataFrame for the given tax profile."""
         settlement = settlement or date.today()
+        # Provider cross-check columns are appended only when the universe
+        # actually carries them (the LSEG snapshot), so the standard schema
+        # (SCREENER_COLUMNS) stays untouched for every other source.
+        has_lseg = any(
+            b.lseg_yield is not None or b.lseg_mod_duration is not None
+            or b.gspread is not None or b.quote_date is not None
+            for b in bonds
+        )
         recs: list[dict] = []
         for b in bonds:
             rec = {
@@ -424,6 +480,14 @@ class BondScreener:
                 "YTM%": None, "NetYTM%": None, "Curr.Yield%": None,
                 "ModDur": None, "Accrued": None,
             }
+            if has_lseg:
+                # The engine above stays authoritative; these sit beside it.
+                # YTMΔ is our gross YTM minus the provider's yield, in bps — a
+                # small number means the ICMA engine agrees with LSEG.
+                rec.update({
+                    "LSEG Yld%": b.lseg_yield, "LSEG ModDur": b.lseg_mod_duration,
+                    "G-Spread": b.gspread, "YTMΔ(bps)": None, "QuoteDate": b.quote_date,
+                })
             # Compute yields only for priced, fixed-coupon bonds with a future maturity.
             if b.price and b.maturity and b.maturity > settlement and b.type in ("govt", "eurobond") and b.coupon is not None:
                 try:
@@ -441,6 +505,8 @@ class BondScreener:
                     rec["ModDur"] = res.modified_duration
                     rec["Curr.Yield%"] = round((b.coupon / b.price) * 100, 3) if b.price else None
                     rec["Accrued"] = res.accrued_interest
+                    if has_lseg and b.lseg_yield is not None:
+                        rec["YTMΔ(bps)"] = round((res.ytm_gross * 100 - b.lseg_yield) * 100, 1)
                 except Exception:  # noqa: BLE001
                     pass
             recs.append(rec)

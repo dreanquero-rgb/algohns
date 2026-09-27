@@ -15,6 +15,7 @@ import pytest
 from algohns.modules.bond_providers import (
     SOURCE_LABELS,
     CsvImportProvider,
+    LSEGBundledProvider,
     RendimentiBtpProvider,
     SampleProvider,
     get_provider,
@@ -22,6 +23,7 @@ from algohns.modules.bond_providers import (
     parse_bond_csv,
     parse_bond_table,
 )
+from algohns.modules.bond_data import BondScreener, load_lseg_bundled
 
 
 def _page(rows_html: str, *, nav=True) -> str:
@@ -175,3 +177,49 @@ class TestLoadUniverse:
             "csv", csv_payload="Name,Price\nBTP 2034,101\n"
         )
         assert status.startswith("live:")
+
+
+class TestLSEGBundled:
+    """The committed LSEG snapshot loads offline and carries cross-check data.
+
+    No network: the provider reads the CSV shipped in the repo, so these run
+    in CI exactly as they do locally.
+    """
+
+    def test_source_is_registered(self):
+        assert "lseg" in SOURCE_LABELS
+        assert get_provider("lseg").key == "lseg"
+
+    def test_snapshot_loads_with_real_btps(self):
+        bonds = load_lseg_bundled()
+        assert bonds, "the LSEG snapshot CSV should be bundled in the repo"
+        # It is a real Italian sovereign universe, so BTPs must be present.
+        assert any("Italy" in b.name for b in bonds)
+        assert all(b.market == "lseg" for b in bonds)
+
+    def test_carries_lseg_crosscheck_fields(self):
+        bonds = load_lseg_bundled()
+        priced = [b for b in bonds if b.price and b.lseg_yield is not None]
+        assert priced, "at least some rows carry a price and an LSEG yield"
+        assert any(b.lseg_mod_duration is not None for b in priced)
+        assert any(b.gspread is not None for b in priced)
+
+    def test_provider_reports_available_and_fetches(self):
+        prov = LSEGBundledProvider()
+        assert prov.available() is True
+        assert len(prov.fetch()) == len(load_lseg_bundled())
+
+    def test_load_universe_status_is_live_lseg(self):
+        bonds, status = load_universe("lseg")
+        assert status == "live:lseg"
+        assert len(bonds) > 100  # the export is a broad comparables set
+
+    def test_build_table_emits_crosscheck_columns(self):
+        view = BondScreener().build_table(load_lseg_bundled(), tax_key="IT_GOV_WHITELIST")
+        for col in ("LSEG Yld%", "LSEG ModDur", "G-Spread", "YTMΔ(bps)"):
+            assert col in view.columns
+        # For a priced BTP the engine's YTM must land near LSEG's bid yield:
+        # the cross-check delta is small for the bulk of the curve.
+        delta = view["YTMΔ(bps)"].dropna().abs()
+        assert not delta.empty
+        assert delta.median() < 25  # bps — ICMA engine agrees with LSEG

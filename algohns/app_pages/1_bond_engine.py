@@ -50,11 +50,12 @@ tab_screener, tab_curve, tab_calc = st.tabs(
 with tab_screener:
     top = st.columns([2, 2, 2, 1])
     source = top[0].selectbox(
-        "Data source", list(SOURCE_LABELS.keys()),
+        "Data source", list(SOURCE_LABELS.keys()), index=0,
         format_func=lambda k: SOURCE_LABELS[k],
-        help="rendimentibtp.it covers all BTPs. Borsa Italiana covers "
-             "MOT/EuroMOT. CSV is the manual fallback when a site is "
-             "unreachable.",
+        help="LSEG is a bundled real snapshot of Italian sovereigns (with an "
+             "LSEG-yield cross-check column). rendimentibtp.it covers all "
+             "BTPs; Borsa Italiana covers MOT/EuroMOT; CSV is the manual "
+             "fallback when a site is unreachable.",
     )
     markets = top[1].multiselect(
         "Markets", list(MOT_LISTS.keys()), default=list(MOT_LISTS.keys()),
@@ -161,6 +162,14 @@ with tab_screener:
         "Price": st.column_config.NumberColumn(format="%.2f"),
         "ModDur": st.column_config.NumberColumn("Mod.Dur", format="%.2f"),
         "Years": st.column_config.NumberColumn(format="%.1f"),
+        # LSEG cross-check columns (present only for the LSEG source).
+        "LSEG Yld%": st.column_config.NumberColumn("LSEG Yld", format="%.3f%%"),
+        "LSEG ModDur": st.column_config.NumberColumn("LSEG Mod.Dur", format="%.2f"),
+        "G-Spread": st.column_config.NumberColumn("G-Spread", format="%.1f bps"),
+        "YTMΔ(bps)": st.column_config.NumberColumn(
+            "YTMΔ vs LSEG", format="%.1f bps",
+            help="Our ICMA gross YTM minus LSEG's bid yield, in bps. "
+                 "Near zero = the engine agrees with LSEG."),
     }
     # Sort defensively: a live feed with no priced bonds yields no yield column.
     table = (view.sort_values("NetYTM%", ascending=False, na_position="last")
@@ -170,6 +179,15 @@ with tab_screener:
     st.download_button("⬇️ Download CSV", view.to_csv(index=False).encode(),
                        file_name="algohns_bond_screener.csv", mime="text/csv")
     st.caption(f"Tax profile: {TAX_PROFILES[tax_key].name} — {TAX_PROFILES[tax_key].note}")
+    if source == "lseg":
+        qd = view["QuoteDate"].dropna() if "QuoteDate" in view.columns else None
+        asof = f" · quotes to {qd.max()}" if qd is not None and not qd.empty else ""
+        st.caption(
+            "📉 Real LSEG snapshot of Italian sovereign comparables"
+            f"{asof}. The **YTMΔ vs LSEG** column cross-checks our ICMA engine "
+            "against LSEG's bid yield — the engine stays authoritative. "
+            "LSEG data carries redistribution terms: personal / educational use only."
+        )
 
 # =============================================================================
 # TAB 2 — YIELD CURVE & ANALYTICS CHARTS
@@ -180,20 +198,30 @@ with tab_curve:
         st.info("Load the screener first (tab 1).")
     else:
         priced = view.dropna(subset=["NetYTM%", "Years"]).copy()
-        if priced.empty:
+        # Guard the axes against degenerate quotes: a bond days from redemption,
+        # or with a stale price, annualises a tiny gap into a huge yield. Those
+        # rows stay in the table (and the LSEG cross-check flags them); the
+        # charts use a sane band so one outlier can't flatten them.
+        sane = priced[priced["NetYTM%"].between(-10, 20)].copy()
+        dropped = len(priced) - len(sane)
+        if sane.empty:
             st.info("No priced instruments to chart.")
         else:
-            # --- Yield curve: net YTM vs maturity, grouped by country ---------
+            group = "Type" if sane["Country"].nunique() <= 1 else "Country"
+            # --- Yield curve: net YTM vs maturity ----------------------------
             st.plotly_chart(
-                ch.scatter(priced, x="Years", y="NetYTM%", label="Name", group="Country",
+                ch.scatter(sane, x="Years", y="NetYTM%", label="Name", group=group,
                            title="Yield curve — net YTM by maturity",
                            xtitle="Years to maturity", ytitle="Net YTM", suffix="%"),
                 width="stretch",
             )
+            if dropped:
+                st.caption(f"{dropped} instrument(s) off-scale (near-maturity or "
+                           "stale quote) hidden from the charts — still in the table.")
 
             c1, c2 = st.columns(2)
             # --- Top net yields (direct-labelled bars) ------------------------
-            top15 = priced.nlargest(min(12, len(priced)), "NetYTM%")
+            top15 = sane.nlargest(min(12, len(sane)), "NetYTM%")
             with c1:
                 st.plotly_chart(
                     ch.hbar(top15["Name"], top15["NetYTM%"], title="Highest net yields",
@@ -215,11 +243,56 @@ with tab_curve:
 
             # --- Duration vs yield (risk/return of the bond book) -------------
             st.plotly_chart(
-                ch.scatter(priced, x="ModDur", y="NetYTM%", label="Name", group="Country",
+                ch.scatter(sane, x="ModDur", y="NetYTM%", label="Name", group=group,
                            title="Risk vs reward — modified duration vs net YTM",
                            xtitle="Modified duration", ytitle="Net YTM", suffix="%", height=380),
                 width="stretch",
             )
+
+            # --- LSEG real data + engine cross-check -------------------------
+            if "LSEG Yld%" in sane.columns and sane["LSEG Yld%"].notna().any():
+                st.divider()
+                st.subheader("Real LSEG data & engine cross-check")
+                lm = sane.dropna(subset=["LSEG Yld%"]).copy()
+                lm = lm[lm["LSEG Yld%"].between(-5, 12) & (lm["Years"] >= 0.1)]
+                # Real LSEG bid-yield curve.
+                st.plotly_chart(
+                    ch.scatter(lm, x="Years", y="LSEG Yld%", label="Name", group="Type",
+                               title="LSEG bid-yield curve — Italian sovereigns (real)",
+                               xtitle="Years to maturity", ytitle="LSEG bid yield", suffix="%"),
+                    width="stretch",
+                )
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    # Agreement plot: our gross YTM vs LSEG bid yield (45° = match).
+                    cross = lm.dropna(subset=["YTM%"]).copy()
+                    if "YTMΔ(bps)" in cross.columns:
+                        cross = cross[cross["YTMΔ(bps)"].abs() <= 100]
+                    st.plotly_chart(
+                        ch.scatter(cross, x="LSEG Yld%", y="YTM%", label="Name", group="Type",
+                                   title="Cross-check — engine YTM vs LSEG (45° = agreement)",
+                                   xtitle="LSEG bid yield", ytitle="Engine gross YTM",
+                                   suffix="%", height=380),
+                        width="stretch",
+                    )
+                with cc2:
+                    # G-spread curve.
+                    gs = lm.dropna(subset=["G-Spread"])
+                    st.plotly_chart(
+                        ch.scatter(gs, x="Years", y="G-Spread", label="Name", group="Type",
+                                   title="G-spread curve (bps over swaps)",
+                                   xtitle="Years to maturity", ytitle="G-spread",
+                                   suffix=" bps", height=380),
+                        width="stretch",
+                    )
+                if "YTMΔ(bps)" in lm.columns and lm["YTMΔ(bps)"].notna().any():
+                    d = lm["YTMΔ(bps)"].dropna()
+                    st.caption(
+                        f"Engine vs LSEG: median Δ {d.median():+.1f} bps, "
+                        f"|Δ| ≤ {d.abs().quantile(0.9):.0f} bps for 90% of {len(d)} priced "
+                        "bonds. The ICMA engine reproduces LSEG's bid yield closely; "
+                        "large deltas are stale or near-maturity quotes."
+                    )
 
         # --- Real macro context: US 10Y since 1953 ---------------------------
         y10 = us10y()
