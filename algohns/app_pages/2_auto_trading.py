@@ -42,16 +42,41 @@ def _show_alpaca_error(prefix: str, exc: Exception) -> None:
 
 
 def _safe_table(df: pd.DataFrame) -> None:
-    """Render a dataframe, falling back to a string table if Arrow can't encode it.
+    """Render a dataframe of Alpaca objects without letting it crash the page.
 
-    Streamlit serialises dataframes through pyarrow, which can choke on mixed
-    object columns; that must not take down the whole panel, so on any failure
-    we show a stringified table instead of raising.
+    Alpaca models come back with enums, UUIDs, datetimes and nested legs. Fed
+    straight to ``st.dataframe`` those object columns hit Streamlit's Arrow
+    type-inference, which on Python 3.14 calls ``ast.parse`` on a cell and
+    raises a SyntaxError that took down the whole page. So every object column
+    is coerced to a plain scalar (numbers/bools/None kept, everything else
+    stringified) *before* rendering — proactively, not by catching after the
+    fact — with a stringified-table fallback as a last resort.
     """
+    safe = df.copy()
+    for col in safe.columns:
+        if safe[col].dtype == object:
+            safe[col] = safe[col].map(
+                lambda v: v if isinstance(v, (int, float, bool)) or v is None else str(v)
+            )
     try:
-        st.dataframe(df, width="stretch", hide_index=True)
+        st.dataframe(safe, width="stretch", hide_index=True)
     except Exception:  # noqa: BLE001
-        st.table(df.astype(str))
+        st.table(safe.astype(str))
+
+
+def _safe_json(obj) -> None:
+    """Show a JSON blob of Alpaca objects safely.
+
+    Same problem as the tables: an order/account dict can hold UUIDs, datetimes
+    and enums that are not JSON-serialisable. Round-trip through json with a str
+    fallback so the display can never raise.
+    """
+    import json
+
+    try:
+        st.json(json.loads(json.dumps(obj, default=str)))
+    except Exception:  # noqa: BLE001
+        st.write(obj)
 
 header(
     "Alpaca Auto-Trading & Risk Profiling",
@@ -222,27 +247,38 @@ with tabs[3]:
                              limit_price=limit_price or None)
         if preview:
             try:
-                st.json(engine.preview_order(ticket))
+                _safe_json(engine.preview_order(ticket))
             except Exception as exc:  # noqa: BLE001
                 _show_alpaca_error("Preview failed", exc)
         if execute and settings.alpaca_configured:
             try:
                 result = engine.submit_order(ticket)
                 st.success("Order submitted (paper).")
-                st.json(result)
+                _safe_json(result)
             except Exception as exc:  # noqa: BLE001
                 _show_alpaca_error("Order failed", exc)
         k1, k2 = st.columns(2)
         if k1.button("🛑 Cancel all orders"):
-            st.json(engine.cancel_all())
+            try:
+                _safe_json(engine.cancel_all())
+            except Exception as exc:  # noqa: BLE001
+                _show_alpaca_error("Cancel failed", exc)
         if k2.button("🧯 Close all positions"):
-            st.json(engine.close_all_positions())
+            try:
+                _safe_json(engine.close_all_positions())
+            except Exception as exc:  # noqa: BLE001
+                _show_alpaca_error("Close-all failed", exc)
 
     with sub[3]:
         if st.button("Load order journal", disabled=not settings.alpaca_configured):
-            orders = engine.list_orders(status="all", limit=50)
-            st.dataframe(pd.DataFrame(orders), width="stretch", hide_index=True) \
-                if orders else st.info("No orders.")
+            try:
+                orders = engine.list_orders(status="all", limit=50)
+                if orders:
+                    _safe_table(pd.DataFrame(orders))
+                else:
+                    st.info("No orders.")
+            except Exception as exc:  # noqa: BLE001
+                _show_alpaca_error("Journal error", exc)
 
 # =============================================================================
 # TAB 4 — WORKER
