@@ -56,7 +56,7 @@ def build(src: str | Path) -> pd.DataFrame:
     by_pos = {
         0: "Issuer", 1: "Coupon", 2: "Maturity", 3: "ISIN", 5: "Bid",
         6: "LSEGYield", 7: "QuoteDate", 9: "GSpread", 13: "Currency",
-        15: "LSEGModDur",
+        14: "CouponType", 15: "LSEGModDur",
     }
     df = df.rename(columns={df.columns[i]: name for i, name in by_pos.items()
                             if i < len(df.columns)})
@@ -86,6 +86,11 @@ def build(src: str | Path) -> pd.DataFrame:
     out["LSEGYield"] = df["LSEGYield"].where(df["Bid"] > 0)
     out["LSEGModDur"] = df["LSEGModDur"].where(df["LSEGModDur"] > 0)
     out["GSpread"] = df["GSpread"].where(df["Bid"] > 0)
+    # Coupon type decides whether an instrument belongs on a nominal curve:
+    # inflation-linked paper quotes a real yield and floaters quote off an
+    # index, so mixing them into a fixed-rate curve fit is simply wrong.
+    out["CouponType"] = (df["CouponType"].astype(str).str.strip()
+                         if "CouponType" in df.columns else "")
     out["QuoteDate"] = df["QuoteDate"].dt.strftime("%Y-%m-%d")
 
     return out.sort_values("Maturity").reset_index(drop=True)

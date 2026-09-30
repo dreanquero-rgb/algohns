@@ -55,7 +55,7 @@ Legend: ✅ = wired in / used · 🔎 = evaluated, reference-only · ❌ = evalu
 | `WestHealth/pyvis` | Interactive HTML graph | ✅ |
 | `dgunning/edgartools` | Alternative filing parser | 🔎 swappable ingestor |
 
-### Module 5 — Consolidated SEC Financial Statements → `sec_aggregator.py`
+### Module 5 — Global Government Bond Curves → `gov_curves.py`
 | Repo / library | Role | Status |
 |---|---|---|
 | `data.sec.gov/api/xbrl/companyfacts` | Standardised XBRL financials | ✅ |
@@ -96,7 +96,7 @@ algohns/                         # repository root
     │   ├── alpaca_execution.py  # MODULE 2
     │   ├── backtest_suite.py    # MODULE 3
     │   ├── supply_chain_graph.py# MODULE 4
-    │   └── sec_aggregator.py    # MODULE 5
+    │   └── gov_curves.py        # MODULE 5
     ├── workers/
     │   ├── celery_app.py        # Celery factory
     │   └── tasks.py             # async tasks + APScheduler fallback
@@ -105,7 +105,7 @@ algohns/                         # repository root
     │   ├── 2_auto_trading.py
     │   ├── 3_backtest_suite.py
     │   ├── 4_supply_chain.py
-    │   └── 5_sec_aggregator.py
+    │   └── 5_gov_curves.py
     └── data/cache/              # parquet market-data cache (git-ignored)
 ```
 
