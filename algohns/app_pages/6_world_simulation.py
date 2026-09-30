@@ -24,7 +24,7 @@ from algohns.modules.world_forward import ForwardConfig, build_world, simulate_w
 from algohns.modules.world_universe import COMPANIES
 from algohns.modules import news_engine as ne
 from algohns.modules import stochastic as sto
-from algohns.ui import code_panel, header
+from algohns.ui import code_editor, code_panel, header
 
 header(
     "World Simulation",
@@ -560,6 +560,49 @@ with tab_mc:
 # TAB 5 — CODE
 # =============================================================================
 with tab_code:
+    st.subheader("Edit & run a forward simulation")
+    _sim_seed = (
+        "# `sto` (stochastic engine), `ne` (news engine) and np are available —\n"
+        "# no imports. Processes: 'gbm', 'student_t', 'merton', 'heston',\n"
+        "# 'vasicek', 'cir'. Set `summary` to a simulate_summary(...) dict.\n\n"
+        "rng = np.random.default_rng(7)\n"
+        "p = sto.ProcessParams(mu=0.06, sigma=0.20, steps_per_year=252)\n"
+        "summary = sto.simulate_summary(\n"
+        "    'gbm', 100.0, p, n_paths=3000, n_steps=252, rng=rng)\n"
+        "print('stats:', summary['stats'])\n"
+    )
+
+    def _sim_ctx():
+        return {"sto": sto, "ne": ne, "np": np}
+
+    def _render_sim(summary):
+        if not isinstance(summary, dict):
+            st.write(summary)
+            return
+        stats = summary.get("stats")
+        if isinstance(stats, dict) and stats:
+            st.json(stats)
+        tr = summary.get("terminal_returns")
+        if tr is not None and len(tr):
+            qs = [5, 25, 50, 75, 95]
+            vals = [float(np.percentile(tr, q) * 100) for q in qs]
+            st.plotly_chart(
+                ch.bar([f"P{q}" for q in qs], vals,
+                       title="Terminal-return distribution (percentiles)",
+                       suffix="%", color_by_sign=True, height=300),
+                width="stretch")
+
+    code_editor(
+        _sim_seed, _sim_ctx, result_var="summary",
+        render_result=_render_sim, key="world_sim",
+        title="Live forward-simulation editor",
+        intro="Runs the same stochastic engine the page uses (GBM, Student-t, "
+              "Merton, Heston, Vasicek, CIR). Change the process, drift, "
+              "volatility or path count and read the terminal distribution.",
+        filename="algohns_forward_sim_live.py",
+    )
+
+    st.divider()
     st.subheader("Simulation engine source")
     st.caption(
         "The forward test's two new engines, pulled live with `inspect`. The "

@@ -13,7 +13,7 @@ import streamlit as st
 
 from algohns import charts as ch
 from algohns.modules import gov_curves as gcv
-from algohns.ui import code_panel, header
+from algohns.ui import code_editor, code_panel, header
 
 header(
     "Global Government Bond Curves",
@@ -285,6 +285,43 @@ with tab_spreads:
 # TAB 4 — CODE
 # =============================================================================
 with tab_code:
+    st.subheader("Edit & run the curve engine")
+    _crv_seed = (
+        "# `gcv` (government-curve engine) plus pd / np are available — no\n"
+        "# imports. load_term_structures returns (curves, notes); each curve\n"
+        "# has .yield_at(years), .fit and .code. Set `result` to display it.\n\n"
+        "curves, notes = gcv.load_term_structures(allow_live=False)\n"
+        "result = {c.code: round(c.yield_at(10.0) or 0.0, 4) for c in curves}\n"
+        "print(f'{len(curves)} curves, 10y yields:')\n"
+    )
+
+    def _crv_ctx():
+        return {"gcv": gcv, "pd": pd, "np": np}
+
+    def _render_curve(result):
+        if isinstance(result, dict) and result:
+            ser = pd.Series(result, dtype=float).sort_values(ascending=False)
+            st.plotly_chart(
+                ch.hbar(ser.index, ser.values * 100,
+                        title="Result by market", height=320,
+                        value_fmt="{:.2f}", suffix="%"),
+                width="stretch")
+            st.dataframe(
+                pd.DataFrame({"market": ser.index, "value": ser.values}),
+                width="stretch", hide_index=True)
+        else:
+            st.write(result)
+
+    code_editor(
+        _crv_seed, _crv_ctx, result_var="result",
+        render_result=_render_curve, key="gov_curves",
+        title="Live curve editor",
+        intro="Runs the same Nelson-Siegel curve engine the page uses. Read a "
+              "fitted yield at any maturity, compare markets, inspect the fit.",
+        filename="algohns_gov_curves_live.py",
+    )
+
+    st.divider()
     st.subheader("Curve engine source")
     st.caption(
         "The data resolution order, the Nelson-Siegel fit and the robust outlier "
