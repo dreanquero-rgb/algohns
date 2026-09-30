@@ -58,8 +58,8 @@ def home() -> None:
     st.markdown('<span class="algohns-badge">Algohns V12 · Python</span>', unsafe_allow_html=True)
     st.title("Algohns")
     st.caption(
-        "European fixed income · Alpaca paper auto-trading · portfolio optimization · "
-        "SEC supply-chain graph · global government bond curves."
+        "European fixed income & global government curves · Alpaca paper "
+        "auto-trading · portfolio optimization · forward world simulation."
     )
 
     c1, c2, c3, c4 = st.columns(4)
@@ -69,13 +69,13 @@ def home() -> None:
     c4.metric("Tax residence", settings.default_tax_residence)
 
     st.divider()
-    cols = st.columns(5)
+    cols = st.columns(4)
     modules = [
-        ("① Bond Engine", "Net YTM, duration, convexity + Italian/EU multi-tax."),
+        ("① Bond Yield & Tax", "Net YTM, duration, multi-tax + global government "
+                               "curves (Nelson-Siegel fits & spreads)."),
         ("② Auto-Trading", "Alpaca paper execution & async portfolio sync."),
         ("③ Backtest Suite", "Optimization (Max Sharpe, Min-Var, Risk Parity, BL)."),
-        ("④ Supply Chain", "S&P 500 10-K/10-Q graph & contagion analytics."),
-        ("⑤ Bond Curves", "Global govt curves, Nelson-Siegel fits & spreads."),
+        ("④ World Simulation", "Forward test: stochastic price paths modulated by news."),
     ]
     for col, (name, desc) in zip(cols, modules):
         with col:
@@ -119,8 +119,6 @@ pages = {
         st.Page("algohns/app_pages/1_bond_engine.py", title="Bond Yield & Tax", icon="📈"),
         st.Page("algohns/app_pages/2_auto_trading.py", title="Alpaca Auto-Trading", icon="🤖"),
         st.Page("algohns/app_pages/3_backtest_suite.py", title="Backtest & Optimize", icon="🧪"),
-        st.Page("algohns/app_pages/4_supply_chain.py", title="Supply Chain Graph", icon="🕸️"),
-        st.Page("algohns/app_pages/5_gov_curves.py", title="Global Bond Curves", icon="📐"),
         st.Page("algohns/app_pages/6_world_simulation.py", title="World Simulation", icon="🌍"),
     ],
 }

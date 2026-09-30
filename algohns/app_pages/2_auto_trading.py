@@ -14,6 +14,7 @@ import streamlit as st
 
 from algohns.config import get_settings
 from algohns.core.data_providers import get_market_data
+from algohns.core.persistence import clear_state, load_state, save_state
 from algohns.modules.alpaca_execution import AlpacaExecutionEngine, OrderTicket
 from algohns.modules.backtest_suite import Backtester, compute_metrics
 from algohns.modules.risk_profile import ASSET_PROXIES, QUESTIONS, compute_profile
@@ -97,6 +98,39 @@ header(
 paper_lock_banner()
 settings = get_settings()
 
+
+# --- Persistence: fill the questionnaire once, keep it across restarts -------
+# session_state is per-session and lost on restart; these hydrate it from disk
+# on first load so a saved risk profile and the chosen strategy survive a
+# restart (see algohns.core.persistence).
+def _hydrate_saved_state() -> None:
+    if "risk_profile" not in st.session_state:
+        saved = load_state("risk_profile")
+        if saved and isinstance(saved.get("answers"), dict):
+            try:
+                st.session_state["risk_profile"] = compute_profile(
+                    saved["answers"], preferences=saved.get("preferences") or [])
+                st.session_state["saved_risk_answers"] = saved["answers"]
+                st.session_state["saved_risk_prefs"] = saved.get("preferences") or []
+            except Exception:  # noqa: BLE001 - a stale blob must not break the page
+                pass
+    if "risk_profile_override" not in st.session_state:
+        saved = load_state("active_strategy")
+        if saved and isinstance(saved.get("weights"), dict) and saved["weights"]:
+            st.session_state["risk_profile_override"] = {
+                str(k): float(v) for k, v in saved["weights"].items()}
+
+
+_hydrate_saved_state()
+
+
+def _persist_strategy(weights: dict) -> None:
+    """Make the Strategy Lab's choice the active, saved strategy."""
+    clean = {str(k): float(v) for k, v in weights.items()}
+    st.session_state["risk_profile_override"] = clean
+    save_state("active_strategy", {"weights": clean})
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _lab_universe():
     """Screening universe with real betas/caps — a fixed dataset, so cache it."""
@@ -113,20 +147,45 @@ tabs = st.tabs([
 # =============================================================================
 with tabs[0]:
     st.subheader("Investor risk questionnaire")
+    st.caption(
+        "Fill this once — the answers are **saved to disk and reloaded on every "
+        "restart**, so you never re-answer unless you want to. Change anything "
+        "and recompute to update it.")
+
+    saved_answers = st.session_state.get("saved_risk_answers", {})
+    saved_prefs = st.session_state.get("saved_risk_prefs", [])
     with st.form("risk"):
         answers: dict[str, int] = {}
         for q in QUESTIONS:
             labels = [a[0] for a in q.answers]
-            choice = st.radio(q.text, labels, horizontal=True, key=f"q_{q.key}")
+            val_to_label = {v: l for l, v in q.answers}
+            saved_val = saved_answers.get(q.key)
+            idx = (labels.index(val_to_label[saved_val])
+                   if saved_val in val_to_label else 0)
+            choice = st.radio(q.text, labels, horizontal=True, index=idx,
+                              key=f"q_{q.key}")
             answers[q.key] = dict(q.answers)[choice]
         st.markdown("**Where would you like to tilt?** (optional)")
-        prefs = st.multiselect("Preferred asset classes", list(ASSET_PROXIES.keys()),
-                               format_func=lambda k: f"{k} ({ASSET_PROXIES[k]})")
-        go = st.form_submit_button("Compute my profile", type="primary")
+        prefs = st.multiselect(
+            "Preferred asset classes", list(ASSET_PROXIES.keys()),
+            default=[p for p in saved_prefs if p in ASSET_PROXIES],
+            format_func=lambda k: f"{k} ({ASSET_PROXIES[k]})")
+        go = st.form_submit_button("Compute & save my profile", type="primary")
 
     if go:
         profile = compute_profile(answers, preferences=prefs)
         st.session_state["risk_profile"] = profile
+        st.session_state["saved_risk_answers"] = answers
+        st.session_state["saved_risk_prefs"] = prefs
+        if save_state("risk_profile", {"answers": answers, "preferences": prefs}):
+            st.toast("Risk profile saved — it will reload automatically next time.")
+
+    if st.session_state.get("risk_profile") is not None:
+        if st.button("🗑️ Clear saved profile"):
+            clear_state("risk_profile")
+            for k in ("risk_profile", "saved_risk_answers", "saved_risk_prefs"):
+                st.session_state.pop(k, None)
+            st.rerun()
 
     profile = st.session_state.get("risk_profile")
     if profile:
@@ -258,9 +317,11 @@ with tabs[3]:
                     "**Strategy Lab** and send them here.")
         else:
             if override:
-                st.caption("Using the weights sent from the **Strategy Lab**.")
+                st.caption("Using the **active strategy** from the Strategy Lab "
+                           "(saved across restarts).")
                 if st.button("↩ Use my risk-profile allocation instead"):
                     st.session_state.pop("risk_profile_override", None)
+                    clear_state("active_strategy")
                     st.rerun()
             elif profile:
                 st.caption(f"Using your **{profile.label}** risk-profile allocation.")
@@ -511,9 +572,11 @@ def strategy_lab_panel() -> None:
             st.download_button("⬇️ Download strategy.py", code.encode(),
                                file_name="algohns_strategy.py", mime="text/x-python")
 
-            if st.button("Send these weights to Paper Trading", type="primary"):
-                st.session_state["risk_profile_override"] = weights
-                st.success(f"{len(weights)} target weights staged for the paper account.")
+            if st.button("Set as active strategy (→ Paper Trading)", type="primary"):
+                _persist_strategy(weights)
+                st.success(f"{len(weights)} target weights are now the **active "
+                           "strategy** (saved — it reloads after a restart). "
+                           "Apply it in the Paper Trading tab.")
                 st.rerun()   # full-app rerun so Paper Trading sees the handoff
 
             st.divider()
@@ -567,10 +630,10 @@ def strategy_lab_panel() -> None:
                 filename="algohns_strategy_live.py",
             )
             if st.session_state.get("strategy_code_weights"):
-                if st.button("Send edited-code weights to Paper Trading"):
-                    st.session_state["risk_profile_override"] = \
-                        st.session_state["strategy_code_weights"]
-                    st.success("Edited-code weights staged for the paper account.")
+                if st.button("Set edited-code weights as active strategy"):
+                    _persist_strategy(st.session_state["strategy_code_weights"])
+                    st.success("Edited-code weights are now the **active strategy** "
+                               "(saved). Apply it in the Paper Trading tab.")
                     st.rerun()
 
 

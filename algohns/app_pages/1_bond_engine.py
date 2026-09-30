@@ -19,6 +19,7 @@ from algohns.modules.bond_data import (
 from algohns.modules.bond_providers import SOURCE_LABELS, load_universe
 from algohns.modules.bond_engine import TAX_PROFILES, Bond, BondEngine
 from algohns.modules.reference_data import us10y
+from algohns.panels import gov_curves_panel as gcpanel
 from algohns.ui import dependency_notice, header
 
 header(
@@ -40,8 +41,9 @@ def _table(source: str, markets: tuple[str, ...], tax_key: str,
     return BondScreener().build_table(bonds, tax_key=tax_key), status
 
 
-tab_screener, tab_curve, tab_calc = st.tabs(
-    ["📋 Screener", "📈 Yield curve & analytics", "🧮 Single-bond calculator"]
+tab_screener, tab_curve, tab_calc, tab_gcurves = st.tabs(
+    ["📋 Screener", "📈 Yield curve & analytics", "🧮 Single-bond calculator",
+     "🌍 Global government curves"]
 )
 
 # =============================================================================
@@ -363,3 +365,9 @@ with tab_calc:
         ql = engine.quantlib_crosscheck(bond)
         with st.expander("QuantLib cross-check (independent verification)"):
             st.json(ql if ql else {"note": "QuantLib not installed; pure-python engine used."})
+
+# =============================================================================
+# TAB 4 — GLOBAL GOVERNMENT CURVES (merged from the former standalone page)
+# =============================================================================
+with tab_gcurves:
+    gcpanel.render()
