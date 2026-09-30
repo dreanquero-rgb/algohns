@@ -64,6 +64,34 @@ class Settings:
         default_factory=lambda: os.getenv("CELERY_RESULT_BACKEND", "")
     )
 
+    # --- Automated trading (Module 2 worker) --------------------------------
+    # OFF by default: bringing the stack up must never place an order on its
+    # own. Set ALGO_AUTO_REBALANCE=true to let the background worker trade the
+    # paper account on the schedule below. Real-money execution stays locked
+    # regardless (the engine refuses a non-paper client).
+    auto_rebalance: bool = field(
+        default_factory=lambda: _env_bool("ALGO_AUTO_REBALANCE", False)
+    )
+    # Cron for the scheduled rebalance (UTC). Default: 14:35 UTC on weekdays,
+    # a few minutes after the US cash open (09:30 ET). The task also checks the
+    # live market clock, so a wrong-time or holiday firing is a no-op.
+    rebalance_cron: str = field(
+        default_factory=lambda: os.getenv("ALGO_REBALANCE_CRON", "35 14 * * 1-5")
+    )
+    # How often the worker reads the account for the monitoring log (seconds).
+    sync_interval_seconds: int = field(
+        default_factory=lambda: int(os.getenv("ALGO_SYNC_INTERVAL", "300") or 300)
+    )
+    # The strategy the worker rebalances toward. Either a named preset
+    # (ALGO_STRATEGY, see workers/strategy.py) or an explicit JSON allocation
+    # in ALGO_TARGET_WEIGHTS, e.g. {"SPY": 0.6, "AGG": 0.4}. The JSON wins.
+    strategy_preset: str = field(
+        default_factory=lambda: os.getenv("ALGO_STRATEGY", "balanced")
+    )
+    target_weights_json: str = field(
+        default_factory=lambda: os.getenv("ALGO_TARGET_WEIGHTS", "")
+    )
+
     # --- SEC EDGAR (Modules 4 & 5) ------------------------------------------
     # The SEC requires a descriptive User-Agent with a contact email.
     sec_user_agent: str = field(
@@ -108,6 +136,9 @@ class Settings:
             "ALPACA_PAPER": str(self.alpaca_paper),
             "ALPACA_BASE_URL": self.alpaca_base_url,
             "REDIS_URL": self.redis_url,
+            "ALGO_AUTO_REBALANCE": str(self.auto_rebalance),
+            "ALGO_STRATEGY": self.strategy_preset,
+            "ALGO_REBALANCE_CRON": self.rebalance_cron,
             "SEC_USER_AGENT": self.sec_user_agent,
             "DEFAULT_TAX_RESIDENCE": self.default_tax_residence,
         }
