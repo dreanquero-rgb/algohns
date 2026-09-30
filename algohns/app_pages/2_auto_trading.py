@@ -14,8 +14,11 @@ from algohns.core.data_providers import get_market_data
 from algohns.modules.alpaca_execution import AlpacaExecutionEngine, OrderTicket
 from algohns.modules.backtest_suite import Backtester, compute_metrics
 from algohns.modules.risk_profile import ASSET_PROXIES, QUESTIONS, compute_profile
+from algohns.modules import alpaca_execution as ae_mod
+from algohns.modules import risk_profile as rp_mod
+from algohns.modules import strategy_lab as sl
 from algohns import charts as ch
-from algohns.ui import dependency_notice, header, paper_lock_banner
+from algohns.ui import code_panel, dependency_notice, header, paper_lock_banner
 
 header(
     "Alpaca Auto-Trading & Risk Profiling",
@@ -25,7 +28,10 @@ header(
 paper_lock_banner()
 settings = get_settings()
 
-tabs = st.tabs(["🧭 Risk Profile", "🧪 Profile Backtest", "🤖 Paper Trading", "🛠️ Worker"])
+tabs = st.tabs([
+    "🧭 Risk Profile", "🔬 Strategy Lab", "🧪 Profile Backtest",
+    "🤖 Paper Trading", "🛠️ Worker", "🐍 Code",
+])
 
 # =============================================================================
 # TAB 1 — RISK QUESTIONNAIRE
@@ -77,7 +83,7 @@ with tabs[0]:
 # =============================================================================
 # TAB 2 — INTEGRATED BACKTEST (separate from Module 3)
 # =============================================================================
-with tabs[1]:
+with tabs[2]:
     profile = st.session_state.get("risk_profile")
     if not profile:
         st.info("Compute your risk profile first (tab 1).")
@@ -115,7 +121,7 @@ with tabs[1]:
 # =============================================================================
 # TAB 3 — PAPER TRADING
 # =============================================================================
-with tabs[2]:
+with tabs[3]:
     if not settings.alpaca_configured:
         st.warning("Set ALPACA_API_KEY / ALPACA_SECRET_KEY to trade on the paper account.")
     try:
@@ -194,7 +200,7 @@ with tabs[2]:
 # =============================================================================
 # TAB 4 — WORKER
 # =============================================================================
-with tabs[3]:
+with tabs[4]:
     st.markdown(
         "Background execution so the strategy keeps running with the browser closed:\n\n"
         "```bash\n"
@@ -208,3 +214,158 @@ with tabs[3]:
         "```"
     )
     st.caption(f"Broker: {settings.celery_broker} · Backend: {settings.celery_backend}")
+
+# =============================================================================
+# TAB 2 — STRATEGY LAB  (rules -> screened universe -> weights -> Python)
+# =============================================================================
+with tabs[1]:
+    st.subheader("Strategy Lab — state the rules, read the code")
+    st.caption(
+        "The questionnaire gives a risk profile; this tab is where that becomes "
+        "an explicit, inspectable rule set. The Python at the bottom is generated "
+        "from these exact rules and calls the same platform functions the app "
+        "runs, so it reproduces the allocation rather than approximating it."
+    )
+
+    universe = sl.demo_universe()
+    if universe.empty:
+        st.warning("World universe unavailable, so the screener has no input.")
+    else:
+        sectors = sorted(universe["sector"].dropna().unique().tolist())
+        countries = sorted(universe["country"].dropna().unique().tolist())
+
+        st.markdown("**1 · Investable-universe rules**")
+        r1 = st.columns(4)
+        beta_band = r1[0].slider("Beta band", 0.0, 2.5, (0.0, 1.30), 0.05,
+                                 help="Sensitivity to the market factor. Below 1.0 "
+                                      "is defensive.")
+        cap_min_bn = r1[1].number_input("Min market cap ($bn)", 0.0, 5000.0, 50.0, 10.0)
+        max_vol = r1[2].slider("Max volatility", 0.05, 1.00, 0.45, 0.01,
+                               help="Annualised. Approximated as beta x 16% market vol.")
+        max_pos = r1[3].number_input("Max positions", 1, 50, 12, 1)
+
+        r2 = st.columns(2)
+        keep_sectors = r2[0].multiselect("Only these sectors (empty = all)", sectors)
+        drop_sectors = r2[1].multiselect("Exclude these sectors",
+                                         [s for s in sectors if s not in keep_sectors])
+        r3 = st.columns([2, 3])
+        keep_countries = r3[0].multiselect("Only these domiciles (empty = all)", countries)
+        expression = r3[1].text_input(
+            "Advanced filter (optional pandas expression)",
+            placeholder="beta < 1.1 & market_cap > 2e11",
+            help="One boolean expression over the screening columns. Evaluated "
+                 "with no builtins and no attribute access — it can filter rows "
+                 "and nothing else.",
+        )
+
+        st.markdown("**2 · Weighting**")
+        weighting = st.selectbox("Weighting scheme", list(sl.WEIGHTINGS.keys()),
+                                 format_func=lambda k: f"{k} — {sl.WEIGHTINGS[k]}")
+        rebalance_sl = st.selectbox("Rebalance", ["Q", "M", "Y", "none"], index=0,
+                                    key="sl_rebal")
+
+        try:
+            criteria = sl.ScreenCriteria(
+                beta_min=beta_band[0] or None,
+                beta_max=beta_band[1],
+                market_cap_min=cap_min_bn * 1e9 if cap_min_bn else None,
+                max_volatility=max_vol,
+                sectors=tuple(keep_sectors),
+                exclude_sectors=tuple(drop_sectors),
+                countries=tuple(keep_countries),
+                max_positions=int(max_pos),
+                expression=expression.strip(),
+            )
+            picks = sl.screen_universe(universe, criteria)
+        except sl.FilterExpressionError as exc:
+            st.error(f"Filter expression rejected: {exc}")
+            picks = universe.iloc[0:0]
+        except ValueError as exc:
+            st.error(f"Contradictory rules: {exc}")
+            picks = universe.iloc[0:0]
+
+        st.markdown("**3 · The screen**")
+        k = st.columns(4)
+        k[0].metric("Universe", len(universe))
+        k[1].metric("Passing the screen", len(picks))
+        if not picks.empty:
+            k[2].metric("Avg beta", f"{pd.to_numeric(picks['beta']).mean():.2f}")
+            k[3].metric("Avg volatility", f"{pd.to_numeric(picks['volatility']).mean():.1%}")
+
+        if picks.empty:
+            st.info("No instrument satisfies these rules — loosen a constraint.")
+        else:
+            weights = sl.build_weights(picks, weighting)
+            st.session_state["lab_weights"] = weights
+            shown = picks.copy()
+            shown["weight %"] = [round(weights.get(str(t), 0.0) * 100, 2)
+                                 for t in shown["ticker"]]
+            shown["market_cap ($bn)"] = (pd.to_numeric(shown["market_cap"],
+                                                       errors="coerce") / 1e9).round(1)
+            st.dataframe(
+                shown[["ticker", "name", "sector", "country", "beta",
+                       "volatility", "market_cap ($bn)", "weight %"]]
+                .sort_values("weight %", ascending=False),
+                width="stretch", hide_index=True, height=300,
+            )
+
+            cc = st.columns(2)
+            wser = pd.Series(weights).sort_values(ascending=False)
+            with cc[0]:
+                st.plotly_chart(
+                    ch.hbar(wser.index, wser.values * 100,
+                            title=f"Target weights — {weighting}", height=340,
+                            value_fmt="{:.1f}", suffix="%"),
+                    width="stretch")
+            with cc[1]:
+                st.plotly_chart(
+                    ch.scatter(picks.assign(
+                        weight=[weights.get(str(t), 0.0) * 100 for t in picks["ticker"]]),
+                        x="beta", y="volatility", label="ticker", group="sector",
+                        title="Risk profile of the screen", xtitle="Beta",
+                        ytitle="Volatility", suffix="", height=340),
+                    width="stretch")
+
+            st.markdown("**4 · Rules in force**")
+            st.markdown("\n".join(f"- {r}" for r in criteria.describe()))
+
+            st.markdown("**5 · The generated strategy**")
+            profile = st.session_state.get("risk_profile")
+            code = sl.generate_strategy_code(
+                criteria, weighting, rebalance_sl,
+                profile=(profile.label if profile else "custom"),
+            )
+            st.caption(
+                "Generated from the rules above. Download it and run it against "
+                "the repo to reproduce this allocation, or edit it freely there — "
+                "the app itself never executes uploaded code, which is why a "
+                "public deployment stays safe."
+            )
+            st.code(code, language="python", line_numbers=True)
+            st.download_button("⬇️ Download strategy.py", code.encode(),
+                               file_name="algohns_strategy.py", mime="text/x-python")
+
+            if st.button("Send these weights to Paper Trading", type="primary"):
+                st.session_state["risk_profile_override"] = weights
+                st.success(f"{len(weights)} target weights staged for the paper account.")
+
+
+# =============================================================================
+# TAB 5 — CODE  (the engine, pulled live from source)
+# =============================================================================
+with tabs[5]:
+    st.subheader("Engine source")
+    st.caption(
+        "Everything the auto-trader runs, pulled live with `inspect` so the code "
+        "shown is the code that executed. Execution is Alpaca **paper** only — "
+        "real-money trading is locked platform-wide."
+    )
+    code_panel(
+        [("Strategy lab", sl),
+         ("Risk questionnaire", rp_mod),
+         ("Alpaca execution", ae_mod)],
+        title="Auto-trading engine — full source",
+        intro="Screening and weighting rules, the risk questionnaire, and the "
+              "Alpaca execution façade with its paper-trading lock.",
+        expanded=True, filename="algohns_autotrader.py",
+    )

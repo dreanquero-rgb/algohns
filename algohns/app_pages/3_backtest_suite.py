@@ -8,9 +8,10 @@ import streamlit as st
 from algohns import charts as ch
 from algohns.core.data_providers import get_market_data
 from algohns.modules import universe
+from algohns.modules import backtest_suite as bt_mod
 from algohns.modules.backtest_suite import Backtester, PortfolioOptimizer, compute_metrics
 from algohns.modules.reference_data import spx_history
-from algohns.ui import dependency_notice, header
+from algohns.ui import code_panel, dependency_notice, header
 
 header(
     "Universe Explorer + Backtesting & Optimization",
@@ -18,8 +19,9 @@ header(
     badge="Module 3",
 )
 
-tab_universe, tab_backtest, tab_history = st.tabs(
-    ["🌐 Universe Explorer", "🧪 Optimize & Backtest", "🏛️ Long history (real)"]
+tab_universe, tab_backtest, tab_history, tab_code = st.tabs(
+    ["🌐 Universe Explorer", "🧪 Optimize & Backtest", "🏛️ Long history (real)",
+     "🐍 Code"]
 )
 
 # =============================================================================
@@ -242,3 +244,27 @@ with tab_history:
                 ch.bar([f"{d.year}s" for d in dec.index], dec.values,
                        title="Return by decade", suffix="%", color_by_sign=True, height=300),
                 width="stretch")
+
+# =============================================================================
+# TAB 4 — CODE  (the backtester, pulled live from source)
+# =============================================================================
+with tab_code:
+    st.subheader("Backtest engine source")
+    st.caption(
+        "The whole backtester, pulled live with `inspect` — what is shown is what "
+        "ran. Two things worth pointing a reviewer at: `run_walk_forward` "
+        "re-optimises at each rebalance using only data available at that date "
+        "(so the equity curve is causal, not fitted in hindsight), and "
+        "`compute_metrics` is where CAGR, Sharpe, Sortino, Calmar, drawdown, "
+        "alpha/beta and VaR/CVaR are defined."
+    )
+    code_panel(
+        [("Backtester", Backtester),
+         ("Walk-forward (causal)", Backtester.run_walk_forward),
+         ("Optimizer", PortfolioOptimizer),
+         ("Metrics", compute_metrics),
+         ("Full module", bt_mod)],
+        title="Backtesting & optimization — full source",
+        intro="Tabs isolate the pieces; the last tab is the entire module.",
+        expanded=True, filename="algohns_backtest.py",
+    )

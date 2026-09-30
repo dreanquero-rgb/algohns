@@ -67,3 +67,58 @@ def dependency_notice(exc: Exception) -> None:
     """Render an actionable message when an optional dependency is missing."""
     st.warning(f"⚙️ {exc}")
     st.caption("Install the extra listed above, then rerun this page.")
+
+
+# ---------------------------------------------------------------------------
+# Source viewer
+#
+# The platform is meant to be read, not just run: a reviewer should be able to
+# see the exact code that produced a number without leaving the page. These
+# helpers pull live source with `inspect`, so what is displayed is always the
+# code that actually ran — it cannot drift from a pasted copy.
+# ---------------------------------------------------------------------------
+def code_panel(
+    targets,
+    *,
+    title: str = "Source code",
+    intro: str = "",
+    expanded: bool = False,
+    filename: str = "algohns_source.py",
+) -> None:
+    """Render the real source of modules/classes/functions in an expander.
+
+    `targets` is a single object or a list of (label, object) pairs. Objects may
+    be modules, classes or functions — anything `inspect.getsource` accepts.
+    """
+    import inspect
+
+    if not isinstance(targets, (list, tuple)):
+        targets = [(getattr(targets, "__name__", "source"), targets)]
+
+    blocks: list[tuple[str, str]] = []
+    for item in targets:
+        label, obj = item if isinstance(item, (list, tuple)) else (
+            getattr(item, "__name__", "source"), item)
+        try:
+            blocks.append((label, inspect.getsource(obj)))
+        except (OSError, TypeError) as exc:  # pragma: no cover - defensive
+            blocks.append((label, f"# source unavailable: {exc}"))
+
+    with st.expander(f"🐍 {title}", expanded=expanded):
+        if intro:
+            st.caption(intro)
+        total = sum(len(src.splitlines()) for _, src in blocks)
+        st.caption(f"{len(blocks)} unit(s) · {total} lines · pulled live with `inspect`.")
+        if len(blocks) == 1:
+            st.code(blocks[0][1], language="python", line_numbers=True)
+        else:
+            for tab, (label, src) in zip(st.tabs([b[0] for b in blocks]), blocks):
+                with tab:
+                    st.code(src, language="python", line_numbers=True)
+        joined = "\n\n\n".join(
+            f"# {'=' * 74}\n# {label}\n# {'=' * 74}\n{src}" for label, src in blocks
+        )
+        st.download_button(
+            "⬇️ Download this source", joined.encode(), file_name=filename,
+            mime="text/x-python", key=f"dl_{filename}_{abs(hash(title))}",
+        )
