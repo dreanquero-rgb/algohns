@@ -33,7 +33,17 @@ def _show_alpaca_error(prefix: str, exc: Exception) -> None:
     remote problem diagnosable.
     """
     st.error(f"{prefix}: {type(exc).__name__}: {exc}")
-    if type(exc).__name__ == "APIError":
+    msg = str(exc)
+    if "40310000" in msg or "rejected by user request" in msg:
+        st.warning(
+            "🚫 **Trading is suspended on this Alpaca account** — the "
+            "`suspend_trade` flag is on, so every new order is rejected "
+            "(this is an account switch, not an app bug). Use the "
+            "**⚙️ Account trading status → Re-enable trading** button at the top "
+            "of this tab (or turn off *Suspend trading* in the Alpaca dashboard), "
+            "then retry the order."
+        )
+    elif type(exc).__name__ == "APIError":
         st.caption("Alpaca rejected the request. Most common causes: the Key ID "
                    "and Secret are swapped, or these are **live** keys while the "
                    "app is paper-only (generate keys with the *Paper* toggle on).")
@@ -194,6 +204,31 @@ with tabs[3]:
     except Exception as exc:  # noqa: BLE001
         dependency_notice(exc)
         st.stop()
+
+    if settings.alpaca_configured:
+        with st.expander("⚙️ Account trading status", expanded=False):
+            st.caption(
+                "If orders are rejected with **code 40310000 — 'new orders are "
+                "rejected by user request'**, trading is suspended on the account. "
+                "Re-enable it here and retry.")
+            b1, b2 = st.columns(2)
+            if b1.button("Check trading status"):
+                try:
+                    if engine.trade_suspended():
+                        st.error("🚫 Trading is **SUSPENDED** on this account "
+                                 "(`suspend_trade` is on) — new orders are rejected.")
+                    else:
+                        st.success("✅ Trading is **enabled** on this account.")
+                except Exception as exc:  # noqa: BLE001
+                    _show_alpaca_error("Status check failed", exc)
+            if b2.button("✅ Re-enable trading", type="primary"):
+                try:
+                    res = engine.set_trade_suspended(False)
+                    st.success("Trading re-enabled (`suspend_trade` turned off). "
+                               "Retry your order now.")
+                    _safe_json(res)
+                except Exception as exc:  # noqa: BLE001
+                    _show_alpaca_error("Could not re-enable trading", exc)
 
     sub = st.tabs(["Portfolio", "Apply profile", "Order ticket", "Journal"])
 

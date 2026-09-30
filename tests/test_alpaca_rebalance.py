@@ -95,3 +95,49 @@ class TestRebalancePlanner:
         eng = _engine(_snap())
         eng.rebalance_to_weights({"spy": 1.0}, dry_run=False)
         assert eng.submitted[0].symbol == "SPY"
+
+
+class _FakeConfig:
+    def __init__(self, suspend_trade: bool):
+        self.suspend_trade = suspend_trade
+
+    def model_dump(self):
+        return {"suspend_trade": self.suspend_trade, "no_shorting": False}
+
+
+class _FakeClient:
+    def __init__(self, suspend_trade: bool = True):
+        self.cfg = _FakeConfig(suspend_trade)
+        self.set_called_with: bool | None = None
+
+    def get_account_configurations(self):
+        return self.cfg
+
+    def set_account_configurations(self, cfg):
+        self.set_called_with = cfg.suspend_trade
+        self.cfg = cfg
+        return cfg
+
+
+class TestTradeSuspension:
+    """Guards the 40310000 'new orders are rejected by user request' recovery."""
+
+    def _engine_with(self, suspend_trade):
+        eng = AlpacaExecutionEngine(api_key="k", secret_key="s")
+        eng._client = _FakeClient(suspend_trade)  # bypass real TradingClient
+        return eng
+
+    def test_reads_suspended_flag(self):
+        assert self._engine_with(True).trade_suspended() is True
+        assert self._engine_with(False).trade_suspended() is False
+
+    def test_reenable_clears_the_flag(self):
+        eng = self._engine_with(True)
+        out = eng.set_trade_suspended(False)
+        assert eng._client.set_called_with is False
+        assert out["suspend_trade"] is False
+
+    def test_can_suspend_too(self):
+        eng = self._engine_with(False)
+        eng.set_trade_suspended(True)
+        assert eng._client.set_called_with is True

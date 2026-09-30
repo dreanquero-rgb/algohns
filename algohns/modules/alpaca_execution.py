@@ -95,6 +95,33 @@ class AlpacaExecutionEngine:
         except Exception as exc:  # noqa: BLE001
             return {"error": str(exc)}
 
+    # ------------------------------------------------- trading suspension
+    def account_configurations(self) -> dict[str, Any]:
+        """Account trading configuration (shorting, fractional, suspend_trade …)."""
+        return _to_dict(self.client.get_account_configurations())
+
+    def trade_suspended(self) -> bool:
+        """True when the account's ``suspend_trade`` flag blocks new orders.
+
+        Alpaca rejects every new order with code 40310000 ("new orders are
+        rejected by user request") while this flag is on. It is a per-account
+        switch, not a code bug, so the app exposes reading and clearing it.
+        """
+        return bool(self.account_configurations().get("suspend_trade", False))
+
+    def set_trade_suspended(self, suspended: bool) -> dict[str, Any]:
+        """Turn the account's ``suspend_trade`` flag on/off (paper).
+
+        Clearing it is how the dashboard's "suspend trading" switch is undone
+        programmatically, which is what unblocks a 40310000 rejection.
+        """
+        cfg = self.client.get_account_configurations()
+        if isinstance(cfg, dict):
+            cfg["suspend_trade"] = suspended
+        else:
+            cfg.suspend_trade = suspended
+        return _to_dict(self.client.set_account_configurations(cfg))
+
     # ----------------------------------------------------------- positions
     def positions(self) -> list[dict[str, Any]]:
         return [_to_dict(p) for p in self.client.get_all_positions()]
