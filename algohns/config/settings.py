@@ -92,6 +92,16 @@ class Settings:
         default_factory=lambda: os.getenv("ALGO_TARGET_WEIGHTS", "")
     )
 
+    # --- Live code editor (Strategy Lab / Backtest) -------------------------
+    # OFF by default. When off the in-app code cells are still editable but the
+    # "Run" button is disabled — the safe posture for a PUBLIC deployment, where
+    # executing visitor-supplied Python would be a remote-code-execution hole.
+    # Set ALGO_ALLOW_CODE_EXEC=true when running the app locally / in Docker on
+    # your own machine, where running your own edited strategy code is the point.
+    allow_code_exec: bool = field(
+        default_factory=lambda: _env_bool("ALGO_ALLOW_CODE_EXEC", False)
+    )
+
     # --- SEC EDGAR (Modules 4 & 5) ------------------------------------------
     # The SEC requires a descriptive User-Agent with a contact email.
     sec_user_agent: str = field(
@@ -139,6 +149,7 @@ class Settings:
             "ALGO_AUTO_REBALANCE": str(self.auto_rebalance),
             "ALGO_STRATEGY": self.strategy_preset,
             "ALGO_REBALANCE_CRON": self.rebalance_cron,
+            "ALGO_ALLOW_CODE_EXEC": str(self.allow_code_exec),
             "SEC_USER_AGENT": self.sec_user_agent,
             "DEFAULT_TAX_RESIDENCE": self.default_tax_residence,
         }

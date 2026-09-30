@@ -205,31 +205,69 @@ class AlpacaExecutionEngine:
 
     # ------------------------------------------------------------- rebalance
     def rebalance_to_weights(
-        self, target_weights: dict[str, float], dry_run: bool = True
+        self,
+        target_weights: dict[str, float],
+        dry_run: bool = True,
+        close_untracked: bool = False,
     ) -> list[dict[str, Any]]:
         """Generate (and optionally submit) orders to reach target weights.
 
         Uses notional orders based on current equity. In ``dry_run`` mode it
         returns the plan without executing — ideal for the dashboard preview.
+        When ``dry_run`` is False every planned order is submitted to the Alpaca
+        **paper** account and its response (order id, status …) is attached to
+        the plan entry under ``result``, so the caller can show the operator
+        that the orders really went out.
+
+        With ``close_untracked`` the account is brought fully onto the target:
+        any position that is *not* in ``target_weights`` is liquidated (a full
+        quantity sell), so "rebalance to profile" means the whole book, not just
+        the target symbols.
         """
         snap = self.portfolio_snapshot()
         equity = snap["equity"]
-        current = {p["symbol"]: p["market_value"] for p in snap["positions"]}
+        targets = {str(s).upper(): float(w) for s, w in target_weights.items()}
+        current = {p["symbol"]: float(p.get("market_value", 0.0) or 0.0)
+                   for p in snap["positions"]}
+        held_qty = {p["symbol"]: float(p.get("qty", 0.0) or 0.0)
+                    for p in snap["positions"]}
+        threshold = max(1.0, 0.001 * equity)
         plan: list[dict[str, Any]] = []
-        for symbol, weight in target_weights.items():
+
+        # 1) Move the target symbols toward their target notional.
+        for symbol, weight in targets.items():
             target_value = equity * weight
             delta = target_value - current.get(symbol, 0.0)
-            if abs(delta) < max(1.0, 0.001 * equity):
+            if abs(delta) < threshold:
                 continue
             ticket = OrderTicket(
                 symbol=symbol,
                 notional=round(abs(delta), 2),
                 side="buy" if delta > 0 else "sell",
             )
-            entry = {"symbol": symbol, "delta_notional": round(delta, 2), "side": ticket.side}
+            entry = {"symbol": symbol, "action": "rebalance",
+                     "side": ticket.side, "delta_notional": round(delta, 2)}
             if not dry_run:
                 entry["result"] = self.submit_order(ticket)
             plan.append(entry)
+
+        # 2) Optionally exit everything that is not part of the target.
+        if close_untracked:
+            for symbol, qty in held_qty.items():
+                if symbol in targets or abs(qty) < 1e-9:
+                    continue
+                ticket = OrderTicket(
+                    symbol=symbol,
+                    qty=abs(qty),
+                    side="sell" if qty > 0 else "buy",
+                )
+                entry = {"symbol": symbol, "action": "exit",
+                         "side": ticket.side,
+                         "delta_notional": -round(current.get(symbol, 0.0), 2)}
+                if not dry_run:
+                    entry["result"] = self.submit_order(ticket)
+                plan.append(entry)
+
         return plan
 
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import traceback
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -20,7 +21,7 @@ from algohns.modules import alpaca_execution as ae_mod
 from algohns.modules import risk_profile as rp_mod
 from algohns.modules import strategy_lab as sl
 from algohns import charts as ch
-from algohns.ui import code_panel, dependency_notice, header, paper_lock_banner
+from algohns.ui import code_editor, code_panel, dependency_notice, header, paper_lock_banner
 
 
 def _show_alpaca_error(prefix: str, exc: Exception) -> None:
@@ -212,21 +213,67 @@ with tabs[3]:
                 _show_alpaca_error("Alpaca error", exc)
 
     with sub[1]:
+        override = st.session_state.get("risk_profile_override")
         profile = st.session_state.get("risk_profile")
-        if not profile:
-            st.info("Compute your risk profile first (tab 1).")
+        weights = dict(override) if override else (
+            dict(profile.ticker_allocation) if profile else None)
+
+        if not weights:
+            st.info("Compute a risk profile (tab 1), or build weights in the "
+                    "**Strategy Lab** and send them here.")
         else:
-            st.write("Target allocation from your profile:")
-            st.json(profile.ticker_allocation)
-            dry = st.toggle("Dry-run (plan only)", value=True)
-            if st.button("Rebalance paper account to profile", type="primary",
-                         disabled=not settings.alpaca_configured):
+            if override:
+                st.caption("Using the weights sent from the **Strategy Lab**.")
+                if st.button("↩ Use my risk-profile allocation instead"):
+                    st.session_state.pop("risk_profile_override", None)
+                    st.rerun()
+            elif profile:
+                st.caption(f"Using your **{profile.label}** risk-profile allocation.")
+
+            st.write("Target allocation:")
+            st.json(weights)
+            close_untracked = st.checkbox(
+                "Also sell holdings that are not in the target (full rebalance)",
+                value=False,
+                help="Off: only trade the target symbols. On: also liquidate any "
+                     "position not in the target so the account matches the "
+                     "allocation exactly.",
+            )
+
+            c1, c2 = st.columns(2)
+            do_preview = c1.button("🔍 Preview plan (no orders sent)",
+                                   disabled=not settings.alpaca_configured)
+            do_send = c2.button("🚀 Send orders to Alpaca (PAPER)", type="primary",
+                                disabled=not settings.alpaca_configured)
+
+            if not settings.alpaca_configured:
+                st.warning("Set ALPACA_API_KEY / ALPACA_SECRET_KEY to enable trading.")
+
+            if do_preview or do_send:
                 try:
-                    plan = engine.rebalance_to_weights(profile.ticker_allocation, dry_run=dry)
-                    if plan:
-                        _safe_table(pd.DataFrame(plan))
-                    else:
+                    plan = engine.rebalance_to_weights(
+                        weights, dry_run=not do_send,
+                        close_untracked=close_untracked)
+                    if not plan:
                         st.info("Already at target — no trades needed.")
+                    else:
+                        _safe_table(pd.DataFrame(plan))
+                        if do_send:
+                            sent = [p for p in plan if isinstance(p.get("result"), dict)]
+                            st.success(
+                                f"✅ {len(sent)} order(s) sent to the Alpaca paper "
+                                "account. Open the **Journal** tab to watch them fill.")
+                            confirm = [
+                                {"symbol": p["symbol"], "side": p["side"],
+                                 "order_id": p["result"].get("id"),
+                                 "status": p["result"].get("status")}
+                                for p in sent
+                            ]
+                            if confirm:
+                                _safe_table(pd.DataFrame(confirm))
+                        else:
+                            st.caption("Nothing was sent — press **Send orders** to "
+                                       "execute this plan on the paper account.")
                 except Exception as exc:  # noqa: BLE001
                     _show_alpaca_error("Rebalance error", exc)
 
@@ -433,6 +480,63 @@ def strategy_lab_panel() -> None:
                 st.session_state["risk_profile_override"] = weights
                 st.success(f"{len(weights)} target weights staged for the paper account.")
                 st.rerun()   # full-app rerun so Paper Trading sees the handoff
+
+            st.divider()
+            st.markdown("**6 · Edit & run the strategy yourself**")
+            seed = (
+                "# `universe` (a DataFrame) plus screen_universe / build_weights /\n"
+                "# ScreenCriteria and pd / np are already available — no imports.\n"
+                "# Edit the rules, set a `weights` dict, then press Run.\n\n"
+                "criteria = ScreenCriteria(\n"
+                "    beta_max=1.20,\n"
+                "    market_cap_min=50e9,\n"
+                "    max_volatility=0.45,\n"
+                "    max_positions=12,\n"
+                ")\n"
+                "picks = screen_universe(universe, criteria)\n"
+                "weights = build_weights(picks, 'inverse_vol')\n"
+                "print(f'{len(picks)} names selected, {len(weights)} weighted')\n"
+            )
+
+            def _strategy_ctx():
+                return {
+                    "universe": universe,
+                    "screen_universe": sl.screen_universe,
+                    "build_weights": sl.build_weights,
+                    "ScreenCriteria": sl.ScreenCriteria,
+                    "WEIGHTINGS": sl.WEIGHTINGS,
+                    "pd": pd,
+                    "np": np,
+                }
+
+            def _render_strategy(result):
+                if not isinstance(result, dict) or not result:
+                    st.warning("`weights` should be a non-empty dict of "
+                               "{ticker: weight}.")
+                    return
+                wser = pd.Series(result, dtype=float).sort_values(ascending=False)
+                st.plotly_chart(
+                    ch.hbar(wser.index, wser.values * 100,
+                            title="Your weights", height=320,
+                            value_fmt="{:.1f}", suffix="%"),
+                    width="stretch")
+                st.session_state["strategy_code_weights"] = {
+                    str(k): float(v) for k, v in result.items()}
+
+            code_editor(
+                seed, _strategy_ctx, result_var="weights",
+                render_result=_render_strategy, key="strategy_lab",
+                title="Live strategy editor",
+                intro="This runs the same platform functions the app uses. Whatever "
+                      "`weights` you produce can be pushed to the paper account below.",
+                filename="algohns_strategy_live.py",
+            )
+            if st.session_state.get("strategy_code_weights"):
+                if st.button("Send edited-code weights to Paper Trading"):
+                    st.session_state["risk_profile_override"] = \
+                        st.session_state["strategy_code_weights"]
+                    st.success("Edited-code weights staged for the paper account.")
+                    st.rerun()
 
 
 with tabs[1]:

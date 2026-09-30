@@ -129,3 +129,90 @@ def code_panel(
             "⬇️ Download this source", joined.encode(), file_name=filename,
             mime="text/x-python", key=f"dl_{filename}_{abs(hash(title))}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Live, editable code cell
+#
+# The read-only `code_panel` above shows the engine; this is the opposite side
+# of the same idea — a cell the user can edit and run themselves, without going
+# through anyone. Execution is opt-in (ALGO_ALLOW_CODE_EXEC) and sandboxed, so
+# the editor is always live but "Run" is only active where it is safe to be:
+# your own machine / Docker, never a public deployment.
+# ---------------------------------------------------------------------------
+def code_editor(
+    seed_code: str,
+    context_factory,
+    *,
+    result_var: str = "result",
+    render_result=None,
+    title: str = "Edit & run",
+    intro: str = "",
+    key: str,
+    filename: str = "algohns_edit.py",
+    height: int = 340,
+) -> None:
+    """Render an editable, runnable code cell.
+
+    ``seed_code`` pre-fills the editor. ``context_factory`` is a zero-argument
+    callable returning the objects to inject (called only on Run, so heavy
+    objects are not rebuilt on every widget change). After a run the value of
+    ``result_var`` is passed to ``render_result(value)`` if given, else shown
+    with ``st.write``.
+    """
+    from algohns.config import get_settings
+    from algohns.modules.code_sandbox import SandboxError, run_user_code
+
+    st.markdown(f"**{title}**")
+    if intro:
+        st.caption(intro)
+
+    state_key = f"__editor__::{key}"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = seed_code
+
+    enabled = get_settings().allow_code_exec
+    if not enabled:
+        st.info(
+            "✏️ **Editing is live; running is off on this deployment.** "
+            "Set `ALGO_ALLOW_CODE_EXEC=true` (in your local `.env` or the Docker "
+            "environment) to run edited code. Public deployments keep it off so "
+            "the page cannot be turned into an arbitrary-code console."
+        )
+
+    code = st.text_area(
+        "code", value=st.session_state[state_key], height=height,
+        key=f"__ta__::{key}", label_visibility="collapsed",
+    )
+    st.session_state[state_key] = code
+
+    cols = st.columns([1, 1, 3])
+    run = cols[0].button("▶ Run", key=f"__run__::{key}", type="primary",
+                         disabled=not enabled)
+    if cols[1].button("↩ Reset", key=f"__reset__::{key}"):
+        st.session_state[state_key] = seed_code
+        st.rerun()
+    cols[2].download_button(
+        "⬇️ Download", code.encode(), file_name=filename,
+        mime="text/x-python", key=f"__dl__::{key}",
+    )
+
+    if run:
+        try:
+            ctx = context_factory()
+            out = run_user_code(code, ctx, result_var=result_var)
+        except SandboxError as exc:
+            st.error(f"⚠️ {exc}")
+            return
+        if out.stdout.strip():
+            st.code(out.stdout, language="text")
+        if out.result is None:
+            st.warning(
+                f"The code ran but never set a `{result_var}` variable, so there "
+                "is nothing to display. Assign your output to "
+                f"`{result_var}` and run again."
+            )
+        elif render_result is not None:
+            render_result(out.result)
+        else:
+            st.write(out.result)

@@ -11,7 +11,7 @@ from algohns.modules import universe
 from algohns.modules import backtest_suite as bt_mod
 from algohns.modules.backtest_suite import Backtester, PortfolioOptimizer, compute_metrics
 from algohns.modules.reference_data import spx_history
-from algohns.ui import code_panel, dependency_notice, header
+from algohns.ui import code_editor, code_panel, dependency_notice, header
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _universe_options(asset_class: str) -> dict:
@@ -281,6 +281,53 @@ with tab_history:
 # TAB 4 — CODE  (the backtester, pulled live from source)
 # =============================================================================
 with tab_code:
+    st.subheader("Edit & run a backtest")
+    _bt_seed = (
+        "# Backtester, PortfolioOptimizer, compute_metrics, get_market_data and\n"
+        "# pd / np are already available — no imports needed. Set `result` to a\n"
+        "# BacktestResult to display it.\n\n"
+        "prices = get_market_data().history('AAPL MSFT NVDA JPM XOM', period='5y')\n"
+        "weights = PortfolioOptimizer(prices).optimize('max_sharpe')\n"
+        "result = Backtester(prices).run(weights, rebalance='Q')\n"
+        "print(result.metrics.as_dict())\n"
+    )
+
+    def _bt_ctx():
+        return {
+            "Backtester": Backtester,
+            "PortfolioOptimizer": PortfolioOptimizer,
+            "compute_metrics": compute_metrics,
+            "get_market_data": get_market_data,
+            "pd": pd,
+            "np": np,
+        }
+
+    def _render_backtest(result):
+        m = getattr(result, "metrics", None)
+        if m is None or not hasattr(result, "equity_curve"):
+            st.write(result)
+            return
+        md = m.as_dict()
+        k = st.columns(4)
+        k[0].metric("CAGR", f"{md['cagr']*100:.2f}%")
+        k[1].metric("Sharpe", f"{md['sharpe']:.2f}")
+        k[2].metric("Max DD", f"{md['max_drawdown']*100:.2f}%")
+        k[3].metric("Volatility", f"{md['annual_volatility']*100:.2f}%")
+        st.plotly_chart(
+            ch.line(result.equity_curve.rename("Portfolio").to_frame(),
+                    title="Equity curve (your code)", height=360),
+            width="stretch")
+
+    code_editor(
+        _bt_seed, _bt_ctx, result_var="result",
+        render_result=_render_backtest, key="backtest",
+        title="Live backtest editor",
+        intro="Runs the same Backtester and optimizer the app uses. Whatever you "
+              "assign to `result` (a BacktestResult) is charted below.",
+        filename="algohns_backtest_live.py",
+    )
+
+    st.divider()
     st.subheader("Backtest engine source")
     st.caption(
         "The whole backtester, pulled live with `inspect` — what is shown is what "
