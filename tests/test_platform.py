@@ -156,42 +156,6 @@ def test_supply_chain_regex_extraction():
     assert any("Verizon" in r.target for r in rels)
 
 
-# --------------------------------------------------------------------------- M5
-def test_sec_statement_and_ratios():
-    from algohns.modules.sec_aggregator import CompanyFacts, SECAggregator
-
-    facts = CompanyFacts("XYZ", "0000000001", "XYZ Corp", raw={"facts": {"us-gaap": {
-        "Revenues": {"units": {"USD": [{"form": "10-K", "fp": "FY", "fy": 2024, "end": "2024-12-31", "val": 500e9}]}},
-        "NetIncomeLoss": {"units": {"USD": [{"form": "10-K", "fp": "FY", "fy": 2024, "end": "2024-12-31", "val": 90e9}]}},
-        "StockholdersEquity": {"units": {"USD": [{"form": "10-K", "fp": "FY", "fy": 2024, "end": "2024-12-31", "val": 150e9}]}},
-    }}})
-    agg = SECAggregator()
-    inc = agg.statement(facts, "income_statement")
-    assert inc["Revenue"] == 500e9 and inc["Net Income"] == 90e9
-    ratios = agg.key_ratios(facts)
-    assert ratios["Net Margin"] == round(90e9 / 500e9, 4)
-    assert ratios["ROE"] == round(90e9 / 150e9, 4)
-
-
-def test_sec_full_statements_and_kpis():
-    from algohns.modules.sec_aggregator import SECAggregator, sample_facts
-
-    agg = SECAggregator()
-    facts = sample_facts("AAPL")
-    inc = agg.full_statement(facts, "income_statement", years=5)
-    assert inc.shape[1] == 5 and inc.shape[0] >= 10          # multi-year, full lines
-    kpis = agg.kpis(facts)
-    # Fixture is in absolute USD, matching the scale of real SEC XBRL facts.
-    assert kpis["Revenue"]["value"] == 391_035 * 1_000_000
-    assert kpis["Revenue"]["yoy"] is not None                # YoY computed
-    assert kpis["EPS (Diluted)"]["value"] == 6.08            # per-share stays unscaled
-
-    # "Bilanci interi": every line of every statement must be populated.
-    for stmt in ("income_statement", "balance_sheet", "cash_flow"):
-        df = agg.full_statement(facts, stmt, years=5)
-        assert df.isna().all(axis=1).sum() == 0, f"{stmt} has empty lines"
-
-
 # ------------------------------------------------------- charts & real data
 def test_chart_builders_produce_valid_figures():
     """Every chart builder must serialise (catches Plotly schema errors)."""

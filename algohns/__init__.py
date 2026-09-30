@@ -7,7 +7,6 @@ quant libraries into a single Streamlit-driven platform:
     Module 2  alpaca_execution   Alpaca Asynchronous Auto-Trading Engine
     Module 3  backtest_suite     Backtesting & Portfolio Optimization Suite
     Module 4  supply_chain_graph S&P 500 Supply Chain Graph Analytics
-    Module 5  sec_aggregator     Consolidated SEC Financial Statements
 
 Each module degrades gracefully when an optional heavy dependency
 (QuantLib, alpaca-py, spaCy, PyPortfolioOpt, vectorbt ...) is not installed,

@@ -33,7 +33,7 @@ def home() -> None:
     st.title("Algohns")
     st.caption(
         "European fixed income · Alpaca paper auto-trading · portfolio optimization · "
-        "SEC supply-chain graph · consolidated financial statements."
+        "SEC supply-chain graph · global government bond curves."
     )
 
     c1, c2, c3, c4 = st.columns(4)
@@ -49,7 +49,6 @@ def home() -> None:
         ("② Auto-Trading", "Alpaca paper execution & async portfolio sync."),
         ("③ Backtest Suite", "Optimization (Max Sharpe, Min-Var, Risk Parity, BL)."),
         ("④ Supply Chain", "S&P 500 10-K/10-Q graph & contagion analytics."),
-        ("⑤ SEC Aggregator", "XBRL income / balance / cash-flow comparison."),
     ]
     for col, (name, desc) in zip(cols, modules):
         with col:
@@ -94,7 +93,6 @@ pages = {
         st.Page("algohns/app_pages/2_auto_trading.py", title="Alpaca Auto-Trading", icon="🤖"),
         st.Page("algohns/app_pages/3_backtest_suite.py", title="Backtest & Optimize", icon="🧪"),
         st.Page("algohns/app_pages/4_supply_chain.py", title="Supply Chain Graph", icon="🕸️"),
-        st.Page("algohns/app_pages/5_sec_aggregator.py", title="SEC Statements", icon="📊"),
         st.Page("algohns/app_pages/6_world_simulation.py", title="World Simulation", icon="🌍"),
     ],
 }

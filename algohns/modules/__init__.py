@@ -9,5 +9,4 @@ __all__ = [
     "alpaca_execution",
     "backtest_suite",
     "supply_chain_graph",
-    "sec_aggregator",
 ]
