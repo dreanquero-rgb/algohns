@@ -96,6 +96,37 @@ class TestRebalancePlanner:
         eng.rebalance_to_weights({"spy": 1.0}, dry_run=False)
         assert eng.submitted[0].symbol == "SPY"
 
+    def test_one_bad_ticker_does_not_abort_the_batch(self):
+        """A symbol Alpaca rejects must not stop the other orders."""
+        eng = _engine(_snap())
+
+        def _submit(ticket: OrderTicket):
+            if ticket.symbol == "BADX":
+                raise RuntimeError('asset "BADX" not found')
+            eng.submitted.append(ticket)
+            return {"id": "ok", "status": "accepted", "symbol": ticket.symbol}
+
+        eng.submit_order = _submit  # type: ignore[method-assign]
+        plan = eng.rebalance_to_weights({"SPY": 0.5, "BADX": 0.5}, dry_run=False)
+        # the good order still went through
+        assert {t.symbol for t in eng.submitted} == {"SPY"}
+        status = {p["symbol"]: p.get("status") for p in plan}
+        assert status["SPY"] == "sent"
+        assert status["BADX"] == "error"
+        bad = next(p for p in plan if p["symbol"] == "BADX")
+        assert "not found" in bad["error"]
+
+    def test_tradable_filter_skips_untradable_without_submitting(self):
+        eng = _engine(_snap())
+        plan = eng.rebalance_to_weights(
+            {"SPY": 0.5, "3690N.MX": 0.5}, dry_run=False, tradable={"SPY"})
+        assert {t.symbol for t in eng.submitted} == {"SPY"}  # only the tradable one
+        status = {p["symbol"]: p.get("status") for p in plan}
+        assert status["SPY"] == "sent"
+        assert status["3690N.MX"] == "skipped"
+        skipped = next(p for p in plan if p["symbol"] == "3690N.MX")
+        assert "not tradable" in skipped["error"]
+
 
 class _FakeConfig:
     def __init__(self, suspend_trade: bool):

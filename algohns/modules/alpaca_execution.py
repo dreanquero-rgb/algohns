@@ -95,6 +95,28 @@ class AlpacaExecutionEngine:
         except Exception as exc:  # noqa: BLE001
             return {"error": str(exc)}
 
+    def tradable_symbols(self) -> set[str]:
+        """Symbols Alpaca can actually trade (active, tradable US equities).
+
+        Alpaca only trades US-listed equities, so a foreign listing such as
+        ``3690N.MX`` or ``WMT.DE`` is rejected with code 42210000 ("asset not
+        found"). This lets the caller skip untradable instruments *before* an
+        order is sent instead of erroring on them. Returns an empty set on any
+        failure, so the caller falls back to attempting the orders (each guarded
+        individually).
+        """
+        requests = require(_requests)
+        enums = require(_enums)
+        try:
+            req = requests.GetAssetsRequest(
+                status=enums.AssetStatus.ACTIVE,
+                asset_class=enums.AssetClass.US_EQUITY,
+            )
+            return {a.symbol for a in self.client.get_all_assets(req)
+                    if getattr(a, "tradable", False)}
+        except Exception:  # noqa: BLE001
+            return set()
+
     # ------------------------------------------------- trading suspension
     def account_configurations(self) -> dict[str, Any]:
         """Account trading configuration (shorting, fractional, suspend_trade …)."""
@@ -236,6 +258,7 @@ class AlpacaExecutionEngine:
         target_weights: dict[str, float],
         dry_run: bool = True,
         close_untracked: bool = False,
+        tradable: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Generate (and optionally submit) orders to reach target weights.
 
@@ -243,13 +266,18 @@ class AlpacaExecutionEngine:
         returns the plan without executing — ideal for the dashboard preview.
         When ``dry_run`` is False every planned order is submitted to the Alpaca
         **paper** account and its response (order id, status …) is attached to
-        the plan entry under ``result``, so the caller can show the operator
-        that the orders really went out.
+        the plan entry under ``result``, with ``status`` = ``sent``.
+
+        **Resilient by design.** Each order is submitted independently: a symbol
+        Alpaca rejects (e.g. a foreign listing) is recorded on its own entry
+        (``status`` = ``error``) and the batch continues, so one bad ticker can
+        no longer stop every other order from going out. If ``tradable`` is
+        given, symbols not in it are skipped up front (``status`` = ``skipped``)
+        without an order attempt.
 
         With ``close_untracked`` the account is brought fully onto the target:
-        any position that is *not* in ``target_weights`` is liquidated (a full
-        quantity sell), so "rebalance to profile" means the whole book, not just
-        the target symbols.
+        any position not in ``target_weights`` is liquidated (a full quantity
+        sell).
         """
         snap = self.portfolio_snapshot()
         equity = snap["equity"]
@@ -260,6 +288,19 @@ class AlpacaExecutionEngine:
                     for p in snap["positions"]}
         threshold = max(1.0, 0.001 * equity)
         plan: list[dict[str, Any]] = []
+
+        def _execute(entry: dict[str, Any], ticket: OrderTicket) -> None:
+            if tradable is not None and ticket.symbol not in tradable:
+                entry["status"] = "skipped"
+                entry["error"] = "not tradable on Alpaca (US equities only)"
+            elif not dry_run:
+                try:
+                    entry["result"] = self.submit_order(ticket)
+                    entry["status"] = "sent"
+                except Exception as exc:  # noqa: BLE001 - one failure ≠ abort
+                    entry["status"] = "error"
+                    entry["error"] = f"{type(exc).__name__}: {exc}"
+            plan.append(entry)
 
         # 1) Move the target symbols toward their target notional.
         for symbol, weight in targets.items():
@@ -272,11 +313,8 @@ class AlpacaExecutionEngine:
                 notional=round(abs(delta), 2),
                 side="buy" if delta > 0 else "sell",
             )
-            entry = {"symbol": symbol, "action": "rebalance",
-                     "side": ticket.side, "delta_notional": round(delta, 2)}
-            if not dry_run:
-                entry["result"] = self.submit_order(ticket)
-            plan.append(entry)
+            _execute({"symbol": symbol, "action": "rebalance",
+                      "side": ticket.side, "delta_notional": round(delta, 2)}, ticket)
 
         # 2) Optionally exit everything that is not part of the target.
         if close_untracked:
@@ -288,12 +326,9 @@ class AlpacaExecutionEngine:
                     qty=abs(qty),
                     side="sell" if qty > 0 else "buy",
                 )
-                entry = {"symbol": symbol, "action": "exit",
-                         "side": ticket.side,
-                         "delta_notional": -round(current.get(symbol, 0.0), 2)}
-                if not dry_run:
-                    entry["result"] = self.submit_order(ticket)
-                plan.append(entry)
+                _execute({"symbol": symbol, "action": "exit",
+                          "side": ticket.side,
+                          "delta_notional": -round(current.get(symbol, 0.0), 2)}, ticket)
 
         return plan
 

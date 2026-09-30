@@ -142,11 +142,21 @@ def _lab_universe():
 CAP_ORDER = ["Mega Cap", "Large Cap", "Mid Cap", "Small Cap", "Micro Cap", "Nano Cap"]
 
 
+# US listing venues in FinanceDatabase's `exchange` field. Alpaca only trades
+# US-listed equities, so restricting to these (and to plain tickers) keeps the
+# strategy universe to instruments the paper account can actually buy — a
+# foreign listing like 3690N.MX / WMT.DE is rejected by Alpaca (code 42210000).
+_US_EXCHANGES = {"NMS", "NYQ", "NGM", "NCM", "ASE", "PCX", "BATS", "NYS",
+                 "NASDAQ", "NYSE"}
+
+
 @st.cache_data(ttl=3600, show_spinner="Loading the full instrument universe…")
 def _full_universe():
-    """The whole FinanceDatabase equity universe (same source as Backtest).
+    """The FinanceDatabase equity universe, restricted to Alpaca-tradable names.
 
-    100k+ equities. It carries sector / industry / country / currency and a
+    Same source as Backtest & Optimize, but filtered to US-listed equities with
+    plain tickers (~8k names) so every pick can actually be traded on the Alpaca
+    paper account. It carries sector / industry / country / currency and a
     market-cap *band* (a category, not a number) — but no per-name beta or
     volatility, so the risk-based filters only apply to the curated set.
     """
@@ -156,8 +166,19 @@ def _full_universe():
     df = un.search("Equities", limit=1_000_000)
     if df.empty:
         return df
+    sym = df["symbol"].astype(str)
+    df = df[df["exchange"].isin(_US_EXCHANGES) & sym.str.fullmatch(r"[A-Z]{1,5}")]
     # Rename so the screener never mistakes the categorical cap for a number.
     return df.rename(columns={"symbol": "ticker", "market_cap": "cap_category"})
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _tradable_symbols() -> list[str]:
+    """Symbols Alpaca can actually trade (cached). Empty if keys/network absent."""
+    try:
+        return sorted(AlpacaExecutionEngine().tradable_symbols())
+    except Exception:  # noqa: BLE001
+        return []
 
 
 # Paper Trading is first on purpose: once a strategy exists it is the thing you
@@ -334,69 +355,124 @@ with tab_paper:
     with sub[1]:
         override = st.session_state.get("risk_profile_override")
         profile = st.session_state.get("risk_profile")
-        weights = dict(override) if override else (
-            dict(profile.ticker_allocation) if profile else None)
+        base_weights = dict(override) if override else (
+            dict(profile.ticker_allocation) if profile else {})
 
-        if not weights:
-            st.info("Compute a risk profile (tab 1), or build weights in the "
-                    "**Strategy Lab** and send them here.")
+        if override:
+            st.caption("Starting from the **active strategy** (Strategy Lab, saved "
+                       "across restarts). Edit it below.")
+            if st.button("↩ Use my risk-profile allocation instead"):
+                st.session_state.pop("risk_profile_override", None)
+                st.session_state.pop("target_alloc_editor", None)
+                clear_state("active_strategy")
+                st.rerun()
+        elif profile:
+            st.caption(f"Starting from your **{profile.label}** risk-profile "
+                       "allocation. Edit it below.")
         else:
-            if override:
-                st.caption("Using the **active strategy** from the Strategy Lab "
-                           "(saved across restarts).")
-                if st.button("↩ Use my risk-profile allocation instead"):
-                    st.session_state.pop("risk_profile_override", None)
-                    clear_state("active_strategy")
-                    st.rerun()
-            elif profile:
-                st.caption(f"Using your **{profile.label}** risk-profile allocation.")
+            st.caption("No strategy yet — add symbols and weights below, or build "
+                       "one in the **Strategy Lab**.")
 
-            st.write("Target allocation:")
-            st.json(weights)
-            close_untracked = st.checkbox(
-                "Also sell holdings that are not in the target (full rebalance)",
-                value=False,
-                help="Off: only trade the target symbols. On: also liquidate any "
-                     "position not in the target so the account matches the "
-                     "allocation exactly.",
-            )
+        # --- Editable target allocation --------------------------------------
+        st.markdown("**Target allocation** — edit weights, add or remove rows:")
+        alloc_df = pd.DataFrame(
+            [{"symbol": str(s).upper(), "weight": float(w)}
+             for s, w in base_weights.items()]
+        ) if base_weights else pd.DataFrame({"symbol": ["SPY", "AGG"],
+                                             "weight": [0.6, 0.4]})
+        edited = st.data_editor(
+            alloc_df, num_rows="dynamic", width="stretch", hide_index=True,
+            key="target_alloc_editor",
+            column_config={
+                "symbol": st.column_config.TextColumn(
+                    "Symbol", help="US ticker (Alpaca trades US equities)."),
+                "weight": st.column_config.NumberColumn(
+                    "Weight", help="Relative weight; normalised to 100% on send.",
+                    min_value=0.0, step=0.01, format="%.4f"),
+            },
+        )
 
-            c1, c2 = st.columns(2)
-            do_preview = c1.button("🔍 Preview plan (no orders sent)",
-                                   disabled=not settings.alpaca_configured)
-            do_send = c2.button("🚀 Send orders to Alpaca (PAPER)", type="primary",
-                                disabled=not settings.alpaca_configured)
+        # Parse the edited table into a clean {SYMBOL: weight} dict.
+        weights: dict[str, float] = {}
+        for _, row in edited.iterrows():
+            sym = str(row.get("symbol") or "").strip().upper()
+            try:
+                w = float(row.get("weight") or 0.0)
+            except (TypeError, ValueError):
+                w = 0.0
+            if sym and w > 0:
+                weights[sym] = weights.get(sym, 0.0) + w
+        total = sum(weights.values())
+        if total > 0:
+            weights = {s: w / total for s, w in weights.items()}  # normalise to 1
 
-            if not settings.alpaca_configured:
-                st.warning("Set ALPACA_API_KEY / ALPACA_SECRET_KEY to enable trading.")
+        # Flag symbols Alpaca can't trade, before anything is sent.
+        tradable = set(_tradable_symbols())
+        if weights:
+            if tradable:
+                bad = sorted(s for s in weights if s not in tradable)
+                if bad:
+                    st.warning("Not tradable on Alpaca (US equities only), will be "
+                               f"skipped: {', '.join(bad)}")
+            cc = st.columns(3)
+            cc[0].metric("Symbols", len(weights))
+            cc[1].metric("Weight sum", f"{total:.2f} → 100%")
+            cc[2].metric("Tradable",
+                         f"{sum(1 for s in weights if s in tradable)}/{len(weights)}"
+                         if tradable else "—")
 
-            if do_preview or do_send:
-                try:
-                    plan = engine.rebalance_to_weights(
-                        weights, dry_run=not do_send,
-                        close_untracked=close_untracked)
-                    if not plan:
-                        st.info("Already at target — no trades needed.")
-                    else:
-                        _safe_table(pd.DataFrame(plan))
-                        if do_send:
-                            sent = [p for p in plan if isinstance(p.get("result"), dict)]
+        c_save, _ = st.columns([1, 2])
+        if c_save.button("💾 Save edited allocation as active strategy",
+                         disabled=not weights):
+            _persist_strategy(weights)
+            st.success("Saved as the active strategy (reloads across restarts).")
+
+        close_untracked = st.checkbox(
+            "Also sell holdings that are not in the target (full rebalance)",
+            value=False,
+            help="Off: only trade the target symbols. On: also liquidate any "
+                 "position not in the target so the account matches exactly.",
+        )
+
+        c1, c2 = st.columns(2)
+        do_preview = c1.button("🔍 Preview plan (no orders sent)",
+                               disabled=not (settings.alpaca_configured and weights))
+        do_send = c2.button("🚀 Send orders to Alpaca (PAPER)", type="primary",
+                            disabled=not (settings.alpaca_configured and weights))
+
+        if not settings.alpaca_configured:
+            st.warning("Set ALPACA_API_KEY / ALPACA_SECRET_KEY to enable trading.")
+
+        if do_preview or do_send:
+            try:
+                plan = engine.rebalance_to_weights(
+                    weights, dry_run=not do_send,
+                    close_untracked=close_untracked,
+                    tradable=tradable or None)
+                if not plan:
+                    st.info("Already at target — no trades needed.")
+                else:
+                    _safe_table(pd.DataFrame(plan))
+                    if do_send:
+                        sent = [p for p in plan if p.get("status") == "sent"]
+                        failed = [p for p in plan
+                                  if p.get("status") in ("error", "skipped")]
+                        if sent:
                             st.success(
                                 f"✅ {len(sent)} order(s) sent to the Alpaca paper "
                                 "account. Open the **Journal** tab to watch them fill.")
-                            confirm = [
-                                {"symbol": p["symbol"], "side": p["side"],
-                                 "order_id": p["result"].get("id"),
-                                 "status": p["result"].get("status")}
-                                for p in sent
-                            ]
-                            if confirm:
-                                _safe_table(pd.DataFrame(confirm))
-                        else:
-                            st.caption("Nothing was sent — press **Send orders** to "
-                                       "execute this plan on the paper account.")
-                except Exception as exc:  # noqa: BLE001
-                    _show_alpaca_error("Rebalance error", exc)
+                        if failed:
+                            st.warning(
+                                f"⚠️ {len(failed)} order(s) not sent (untradable or "
+                                "rejected) — the rest still went through. See the "
+                                "`status`/`error` columns above.")
+                        if not sent and not failed:
+                            st.info("No orders were sent.")
+                    else:
+                        st.caption("Nothing was sent — press **Send orders** to "
+                                   "execute this plan on the paper account.")
+            except Exception as exc:  # noqa: BLE001
+                _show_alpaca_error("Rebalance error", exc)
 
     with sub[2]:
         with st.form("order"):
