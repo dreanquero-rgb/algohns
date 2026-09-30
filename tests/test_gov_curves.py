@@ -151,6 +151,20 @@ class TestFredPath:
         assert "Germany" not in frame.columns
         assert "Italy" in frame.columns and "United States" in frame.columns
 
+    def test_concurrent_fetch_preserves_requested_order(self, monkeypatch):
+        """Fetches run in a thread pool, so column order must not follow completion."""
+        import time as _time
+
+        def slow_for_italy(sid: str) -> pd.Series:
+            # Make Italy finish last; it must still be the first column.
+            if sid == "IRLTLT01ITM156N":
+                _time.sleep(0.05)
+            return TestFredPath._fake_series(sid)
+
+        monkeypatch.setattr(gc, "_fetch_fred", slow_for_italy)
+        frame = gc.fred_benchmark_history(["IT", "DE", "US"])
+        assert list(frame.columns) == ["Italy", "Germany", "United States"]
+
     def test_total_failure_raises_so_the_caller_can_fall_back(self, monkeypatch):
         monkeypatch.setattr(gc, "_fetch_fred",
                             lambda sid: (_ for _ in ()).throw(RuntimeError("down")))

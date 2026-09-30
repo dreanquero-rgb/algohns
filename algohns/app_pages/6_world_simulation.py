@@ -95,6 +95,12 @@ tab_globe, tab_mc, tab_dist, tab_cmp, tab_cat, tab_code = st.tabs(
      "Portfolio comparison", "Event catalogue", "Code"]
 )
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _globe_html() -> str:
+    """Read the self-contained globe once per session, not once per rerun."""
+    return GLOBE.read_text()
+
+
 with tab_globe:
     if GLOBE.exists():
         st.caption(
@@ -102,14 +108,15 @@ with tab_globe:
             "can be edited **during** the simulation: the world does not depend "
             "on what you hold, so re-valuation is instant."
         )
-        st.iframe(GLOBE.read_text(), height=920)
+        st.iframe(_globe_html(), height=920)
     else:
         st.error(
             f"Globe not found at `{GLOBE}`. Regenerate it with "
             "`python scripts/build_world.py`."
         )
 
-with tab_dist:
+@st.fragment
+def outcome_distribution_panel() -> None:
     st.subheader("Outcomes across many worlds")
     st.caption(
         "A single world is an anecdote. The distribution across many seeds is "
@@ -118,8 +125,22 @@ with tab_dist:
     c1, c2, c3 = st.columns(3)
     years = c1.slider("Horizon (years)", 1, 10, 5)
     intensity = c2.slider("Turbulence", 0.2, 3.0, 1.0, 0.1)
-    n_seeds = c3.slider("Number of worlds", 10, 100, 30, 10)
+    n_seeds = c3.slider("Number of worlds", 10, 100, 20, 10)
 
+    # Gated on an explicit press for the same reason as the Monte Carlo tab:
+    # each world is a full simulation (~0.3s), so 20 of them is a few seconds
+    # and should never fire just because the page happened to re-run.
+    if st.button("▶ Run the worlds", type="primary", key="run_dist",
+                 help="Each world is a full forward simulation; 20 takes a few "
+                      "seconds."):
+        st.session_state["dist_args"] = (years, intensity, n_seeds)
+
+    dist_args = st.session_state.get("dist_args")
+    if not dist_args:
+        st.info("Choose a horizon, turbulence and world count, then press "
+                "**Run the worlds**.")
+        return
+    years, intensity, n_seeds = dist_args
     frame = _many(years, intensity, n_seeds,
                   tuple(sorted(DEFAULT_PORTFOLIO.items())))
 
@@ -150,7 +171,8 @@ with tab_dist:
         "compounded arithmetic drift makes a correct calibration look broken."
     )
 
-with tab_cmp:
+@st.fragment
+def portfolio_comparison_panel() -> None:
     st.subheader("Two portfolios, the same world")
     st.caption(
         "The world is independent of the portfolio, so both run on the same "
@@ -211,6 +233,12 @@ with tab_cmp:
             width="stretch", height=340,
         )
 
+with tab_dist:
+    outcome_distribution_panel()
+
+with tab_cmp:
+    portfolio_comparison_panel()
+
 with tab_cat:
     st.subheader("Event catalogue")
     st.caption(
@@ -248,12 +276,108 @@ with tab_cat:
 # =============================================================================
 # TAB 2 — MONTE CARLO ENGINE
 #
-# The forward test's quantitative core, exposed directly: pick a price-formation
-# process, see what it implies for the distribution of outcomes, and see how
-# news re-parameterises it. Every process is validated against its closed-form
-# moments in tests/test_stochastic.py.
+# The forward test's quantitative core. Wrapped in `st.fragment` and gated on an
+# explicit Run: Streamlit re-runs a whole script on every widget change and does
+# NOT lazily evaluate `st.tabs` bodies, so without both of these a slider
+# anywhere on this page would re-execute a multi-second simulation even while
+# you are looking at the globe. The fragment confines reruns to this panel; the
+# button confines the compute to when it was actually asked for.
 # =============================================================================
-with tab_mc:
+def _params(mu: float, sigma: float, df: float, lam: float) -> "sto.ProcessParams":
+    return sto.ProcessParams(
+        mu=mu, sigma=sigma, steps_per_year=252, df=df, jump_intensity=lam,
+        jump_mean=-0.03, jump_vol=0.10, kappa=2.0, theta=sigma**2, xi=0.30,
+        rho=-0.7)
+
+
+@st.cache_data(ttl=900, show_spinner="Drawing Monte Carlo paths…")
+def _mc(process: str, mu: float, sigma: float, years: int, paths: int,
+        lam: float, df: float, seed: int):
+    """Chunked Monte Carlo: peak memory stays ~50-90 MB even at 10k paths x 10y,
+    where materialising every path peaked at ~800 MB and OOM-killed a 1 GB
+    container. Percentiles remain exact."""
+    return sto.simulate_summary(
+        process, 100.0, _params(mu, sigma, df, lam), paths, 252 * years,
+        np.random.default_rng(seed))
+
+
+@st.cache_data(ttl=900, show_spinner="Comparing processes…")
+def _compare(mu: float, sigma: float, years: int, paths: int, lam: float,
+             df: float, seed: int) -> pd.DataFrame:
+    rows = {}
+    for name in sto.PROCESSES:
+        s = sto.simulate_summary(name, 100.0, _params(mu, sigma, df, lam), paths,
+                                 252 * years, np.random.default_rng(seed))["stats"]
+        rows[name] = {
+            "Mean %": s["mean_return"] * 100, "Median %": s["median_return"] * 100,
+            "VaR 95 %": s["var_95"] * 100, "ES 95 %": s["expected_shortfall_95"] * 100,
+            "Worst %": s["worst_return"] * 100, "Max DD %": s["max_drawdown"] * 100,
+            "P(loss) %": s["prob_loss"] * 100,
+        }
+    return pd.DataFrame(rows).T
+
+
+@st.cache_data(ttl=900, show_spinner="Sampling the news timeline…")
+def _news_regime(years: int, seed: int, steps: int):
+    """Turn a drawn news timeline into per-step process modulation."""
+    subjects = {
+        "company": sorted(c.ticker for c in COMPANIES),
+        "sector": sorted({c.sector for c in COMPANIES}),
+        "country": sorted({c.domicile for c in COMPANIES}),
+        "region": ["Europe", "Asia", "Americas", "EMEA"],
+        "chokepoint": ["Suez Canal", "Strait of Hormuz", "Taiwan Strait",
+                       "Panama Canal", "Strait of Malacca", "Red Sea"],
+    }
+    drawn = ne.sample_news(365 * years, subjects, seed=seed)
+    vol = np.ones(steps)
+    drift = np.zeros(steps)
+    lam = np.zeros(steps)
+    for item in drawn:
+        lo = int(item.day / 365.0 * 252)
+        hi = min(int(item.end_day / 365.0 * 252), steps)
+        if hi > lo:
+            vol[lo:hi] = np.maximum(vol[lo:hi], item.vol_multiplier)
+            drift[lo:hi] += item.drift_change
+            lam[lo:hi] += abs(item.equity_shock) * 8.0
+    return len(drawn), vol, drift, lam
+
+
+@st.cache_data(ttl=900, show_spinner="Comparing with and without news…")
+def _news_effect(process: str, mu: float, sigma: float, years: int, lam_j: float,
+                 df: float, seed: int):
+    steps = 252 * years
+    n_items, vol, drift, lam = _news_regime(years, seed, steps)
+    params = _params(mu, sigma, df, lam_j)
+    modulation = sto.NewsModulation(drift_shift=drift, vol_multiplier=vol,
+                                   intensity_shift=lam)
+    quiet = sto.simulate_summary(process, 100.0, params, 600, steps,
+                                 np.random.default_rng(seed))
+    newsy = sto.simulate_summary(process, 100.0, params, 600, steps,
+                                 np.random.default_rng(seed), modulation)
+    return n_items, vol, quiet, newsy
+
+
+@st.cache_data(ttl=900, show_spinner="Drawing short-rate paths…")
+def _rates(r0: float, kappa: float, theta: float, years: int, seed: int):
+    steps = 252 * years
+    cols = np.unique(np.linspace(0, steps, min(260, steps + 1)).astype(int))
+    vas = sto.vasicek_paths(r0, kappa, theta, 0.010, 600, steps, 252,
+                            np.random.default_rng(seed))
+    cir = sto.cir_paths(max(r0, 1e-4), kappa, max(theta, 1e-4), 0.06, 600, steps,
+                        252, np.random.default_rng(seed))
+    frame = pd.DataFrame({
+        "Vasicek p50": np.percentile(vas[:, cols], 50, axis=0) * 100,
+        "Vasicek p5": np.percentile(vas[:, cols], 5, axis=0) * 100,
+        "Vasicek p95": np.percentile(vas[:, cols], 95, axis=0) * 100,
+        "CIR p50": np.percentile(cir[:, cols], 50, axis=0) * 100,
+        "CIR p5": np.percentile(cir[:, cols], 5, axis=0) * 100,
+    }, index=cols / 252.0)
+    frame.index.name = "Years"
+    return frame, float(vas[:, -1].mean()), float((vas[:, -1] < 0).mean())
+
+
+@st.fragment
+def monte_carlo_panel() -> None:
     st.subheader("Price formation — stochastic processes and Monte Carlo")
     st.caption(
         "A forward test is a distribution, not a path. Pick the process that "
@@ -278,22 +402,28 @@ with tab_mc:
                      help="Student-t only: lower = fatter tails. df→∞ is Gaussian.")
     mc_seed = p4.number_input("Seed", 1, 99_999, 2026, 1, key="mc_seed")
 
-    @st.cache_data(ttl=900, show_spinner="Drawing Monte Carlo paths…")
-    def _mc(process: str, mu: float, sigma: float, years: int, paths: int,
-            lam: float, df: float, seed: int):
-        # Chunked: peak memory stays ~50-90 MB even at 10k paths x 10y, where
-        # materialising every path peaked at ~800 MB and OOM-killed a 1 GB
-        # container. Percentiles are still exact.
-        params = sto.ProcessParams(
-            mu=mu, sigma=sigma, steps_per_year=252, df=df,
-            jump_intensity=lam, jump_mean=-0.03, jump_vol=0.10,
-            kappa=2.0, theta=sigma**2, xi=0.30, rho=-0.7,
-        )
-        return sto.simulate_summary(process, 100.0, params, paths, 252 * years,
-                                    np.random.default_rng(seed))
+    st.markdown("**Short rate (Vasicek / CIR)**")
+    r1c, r2c, r3c = st.columns(3)
+    r0 = r1c.slider("Starting short rate (%)", -1.0, 10.0, 2.5, 0.1) / 100
+    kappa_r = r2c.slider("Mean-reversion speed κ", 0.1, 5.0, 1.2, 0.1)
+    theta_r = r3c.slider("Long-run level θ (%)", -1.0, 8.0, 2.0, 0.1) / 100
 
-    summary = _mc(process, mu_pct / 100, sigma_pct / 100, years_mc,
-                  n_paths, jump_lambda, df_t, int(mc_seed))
+    run = st.button("▶ Run simulation", type="primary",
+                    help="Nothing heavy runs until you press this — a full sweep "
+                         "at the largest settings takes a few seconds.")
+    if run:
+        st.session_state["mc_args"] = dict(
+            process=process, mu=mu_pct / 100, sigma=sigma_pct / 100,
+            years=years_mc, paths=n_paths, lam=jump_lambda, df=df_t,
+            seed=int(mc_seed), r0=r0, kappa=kappa_r, theta=theta_r)
+
+    args = st.session_state.get("mc_args")
+    if not args:
+        st.info("Set the parameters above, then press **Run simulation**.")
+        return
+
+    summary = _mc(args["process"], args["mu"], args["sigma"], args["years"],
+                  args["paths"], args["lam"], args["df"], args["seed"])
     stats = summary["stats"]
 
     k = st.columns(5)
@@ -310,13 +440,14 @@ with tab_mc:
                        index=summary["years"])
     fan.index.name = "Years"
     st.plotly_chart(
-        ch.line(fan, title=f"Monte Carlo fan — {sto.PROCESSES[process]}", height=380),
-        width="stretch",
-    )
+        ch.line(fan, title=f"Monte Carlo fan — {sto.PROCESSES[args['process']]}",
+                height=380),
+        width="stretch")
     st.caption(
-        f"{n_paths:,} paths. The p5–p95 band is the forward test's actual claim; "
-        "the median line is not a forecast. Mean above median is the lognormal "
-        "asymmetry — quoting the mean as 'expected outcome' is the classic error."
+        f"{args['paths']:,} paths. The p5–p95 band is the forward test's actual "
+        "claim; the median line is not a forecast. Mean above median is the "
+        "lognormal asymmetry — quoting the mean as 'expected outcome' is the "
+        "classic error."
     )
 
     # --- Terminal distribution ---------------------------------------------
@@ -325,22 +456,19 @@ with tab_mc:
         counts, edges = np.histogram(summary["terminal_returns"], bins=40)
         centres = [f"{(edges[i] + edges[i + 1]) / 2:.0%}" for i in range(len(counts))]
         st.plotly_chart(
-            ch.bar(centres, counts, title="Terminal return distribution",
-                   height=340),
+            ch.bar(centres, counts, title="Terminal return distribution", height=340),
             width="stretch")
     with d2:
-        risk = pd.DataFrame({
-            "Value": {
-                "Median return": stats["median_return"],
-                "Mean return": stats["mean_return"],
-                "Std of return": stats["std_return"],
-                "VaR 95%": stats["var_95"],
-                "Expected shortfall 95%": stats["expected_shortfall_95"],
-                "Worst path": stats["worst_return"],
-                "Best path": stats["best_return"],
-                "Deepest drawdown": stats["max_drawdown"],
-            }
-        })
+        risk = pd.DataFrame({"Value": {
+            "Median return": stats["median_return"],
+            "Mean return": stats["mean_return"],
+            "Std of return": stats["std_return"],
+            "VaR 95%": stats["var_95"],
+            "Expected shortfall 95%": stats["expected_shortfall_95"],
+            "Worst path": stats["worst_return"],
+            "Best path": stats["best_return"],
+            "Deepest drawdown": stats["max_drawdown"],
+        }})
         st.dataframe(risk.style.format("{:.2%}"), width="stretch", height=340)
 
     # --- Process comparison on identical parameters ------------------------
@@ -351,31 +479,9 @@ with tab_mc:
         "changes. The means agree by construction; the tails do not. That gap is "
         "the risk a pure-GBM forward test silently omits."
     )
-
-    @st.cache_data(ttl=900, show_spinner="Comparing processes…")
-    def _compare(mu: float, sigma: float, years: int, paths: int, lam: float,
-                 df: float, seed: int) -> pd.DataFrame:
-        rows = {}
-        for name in sto.PROCESSES:
-            params = sto.ProcessParams(
-                mu=mu, sigma=sigma, steps_per_year=252, df=df,
-                jump_intensity=lam, jump_mean=-0.03, jump_vol=0.10,
-                kappa=2.0, theta=sigma**2, xi=0.30, rho=-0.7)
-            s = sto.simulate_summary(name, 100.0, params, paths, 252 * years,
-                                     np.random.default_rng(seed))["stats"]
-            rows[name] = {
-                "Mean %": s["mean_return"] * 100,
-                "Median %": s["median_return"] * 100,
-                "VaR 95 %": s["var_95"] * 100,
-                "ES 95 %": s["expected_shortfall_95"] * 100,
-                "Worst %": s["worst_return"] * 100,
-                "Max DD %": s["max_drawdown"] * 100,
-                "P(loss) %": s["prob_loss"] * 100,
-            }
-        return pd.DataFrame(rows).T
-
-    cmp_df = _compare(mu_pct / 100, sigma_pct / 100, years_mc,
-                      min(n_paths, 3_000), jump_lambda, df_t, int(mc_seed))
+    cmp_df = _compare(args["mu"], args["sigma"], args["years"],
+                      min(args["paths"], 3_000), args["lam"], args["df"],
+                      args["seed"])
     cc1, cc2 = st.columns([3, 2])
     with cc1:
         st.plotly_chart(
@@ -394,42 +500,14 @@ with tab_mc:
         "active; the price keeps obeying its SDE inside that regime. Below, the "
         "same seed is drawn with and without a news regime running."
     )
-    steps_mc = 252 * years_mc
-    news_subjects = {
-        "company": sorted(c.ticker for c in COMPANIES),
-        "sector": sorted({c.sector for c in COMPANIES}),
-        "country": sorted({c.domicile for c in COMPANIES}),
-        "region": ["Europe", "Asia", "Americas", "EMEA"],
-        "chokepoint": ["Suez Canal", "Strait of Hormuz", "Taiwan Strait",
-                       "Panama Canal", "Strait of Malacca", "Red Sea"],
-    }
-    drawn = ne.sample_news(365 * years_mc, news_subjects, seed=int(mc_seed))
-    vol_mult = np.ones(steps_mc)
-    drift_shift = np.zeros(steps_mc)
-    lam_shift = np.zeros(steps_mc)
-    for item in drawn:
-        lo = int(item.day / 365.0 * 252)
-        hi = min(int(item.end_day / 365.0 * 252), steps_mc)
-        if hi > lo:
-            vol_mult[lo:hi] = np.maximum(vol_mult[lo:hi], item.vol_multiplier)
-            drift_shift[lo:hi] += item.drift_change
-            lam_shift[lo:hi] += abs(item.equity_shock) * 8.0
-    modulation = sto.NewsModulation(drift_shift=drift_shift,
-                                    vol_multiplier=vol_mult,
-                                    intensity_shift=lam_shift)
-    mc_params = sto.ProcessParams(mu=mu_pct / 100, sigma=sigma_pct / 100,
-                                  steps_per_year=252, df=df_t,
-                                  jump_intensity=jump_lambda, jump_mean=-0.03,
-                                  jump_vol=0.10, theta=(sigma_pct / 100) ** 2)
-    quiet = sto.simulate_summary(process, 100.0, mc_params, 600, steps_mc,
-                                 np.random.default_rng(int(mc_seed)))
-    newsy = sto.simulate_summary(process, 100.0, mc_params, 600, steps_mc,
-                                 np.random.default_rng(int(mc_seed)), modulation)
+    n_items, vol_mult, quiet, newsy = _news_effect(
+        args["process"], args["mu"], args["sigma"], args["years"], args["lam"],
+        args["df"], args["seed"])
 
     n1, n2 = st.columns(2)
     with n1:
         regime = pd.DataFrame({"Volatility multiplier": vol_mult},
-                              index=np.arange(steps_mc) / 252.0)
+                              index=np.arange(len(vol_mult)) / 252.0)
         regime.index.name = "Years"
         st.plotly_chart(
             ch.line(regime, title="News-driven volatility regime", height=320),
@@ -450,7 +528,7 @@ with tab_mc:
     e[0].metric("VaR 95 — no news", f"{qs['var_95']:.1%}")
     e[1].metric("VaR 95 — with news", f"{ns['var_95']:.1%}",
                 delta=f"{(ns['var_95'] - qs['var_95']) * 100:.1f} pp")
-    e[2].metric("News items drawn", f"{len(drawn):,}")
+    e[2].metric("News items drawn", f"{n_items:,}")
     e[3].metric("Peak vol multiplier", f"{vol_mult.max():.2f}×")
 
     # --- Stochastic short rate ---------------------------------------------
@@ -462,33 +540,21 @@ with tab_mc:
         "negative — which post-2014 Europe requires); CIR mean-reverts with a "
         "√r diffusion that keeps it non-negative."
     )
-    r1c, r2c, r3c = st.columns(3)
-    r0 = r1c.slider("Starting short rate (%)", -1.0, 10.0, 2.5, 0.1) / 100
-    kappa_r = r2c.slider("Mean-reversion speed κ", 0.1, 5.0, 1.2, 0.1)
-    theta_r = r3c.slider("Long-run level θ (%)", -1.0, 8.0, 2.0, 0.1) / 100
-    rate_steps = 252 * years_mc
-    step_idx = np.unique(np.linspace(0, rate_steps, min(260, rate_steps + 1)).astype(int))
-    vas = sto.vasicek_paths(r0, kappa_r, theta_r, 0.010, 600, rate_steps, 252,
-                            np.random.default_rng(int(mc_seed)))
-    cir = sto.cir_paths(max(r0, 0.0001), kappa_r, max(theta_r, 0.0001), 0.06,
-                        600, rate_steps, 252, np.random.default_rng(int(mc_seed)))
-    rate_df = pd.DataFrame({
-        "Vasicek p50": np.percentile(vas[:, step_idx], 50, axis=0) * 100,
-        "Vasicek p5": np.percentile(vas[:, step_idx], 5, axis=0) * 100,
-        "Vasicek p95": np.percentile(vas[:, step_idx], 95, axis=0) * 100,
-        "CIR p50": np.percentile(cir[:, step_idx], 50, axis=0) * 100,
-        "CIR p5": np.percentile(cir[:, step_idx], 5, axis=0) * 100,
-    }, index=step_idx / 252.0)
-    rate_df.index.name = "Years"
+    rate_df, vas_mean, vas_neg = _rates(args["r0"], args["kappa"], args["theta"],
+                                        args["years"], args["seed"])
     st.plotly_chart(ch.line(rate_df, title="Short-rate paths (%)", height=340),
                     width="stretch")
     rr = st.columns(3)
-    rr[0].metric("Vasicek terminal mean", f"{vas[:, -1].mean() * 100:.2f}%")
-    rr[1].metric("Negative-rate paths (Vasicek)", f"{(vas[:, -1] < 0).mean():.0%}")
+    rr[0].metric("Vasicek terminal mean", f"{vas_mean * 100:.2f}%")
+    rr[1].metric("Negative-rate paths (Vasicek)", f"{vas_neg:.0%}")
     rr[2].metric("Feller satisfied (CIR)",
-                 "yes" if sto.feller_condition(kappa_r, max(theta_r, 0.0001), 0.06) else "no",
+                 "yes" if sto.feller_condition(args["kappa"],
+                                               max(args["theta"], 1e-4), 0.06) else "no",
                  help="2κθ ≥ σ² means CIR cannot reach zero.")
 
+
+with tab_mc:
+    monte_carlo_panel()
 
 # =============================================================================
 # TAB 5 — CODE

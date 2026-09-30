@@ -99,10 +99,17 @@ def code_panel(
     for item in targets:
         label, obj = item if isinstance(item, (list, tuple)) else (
             getattr(item, "__name__", "source"), item)
-        try:
-            blocks.append((label, inspect.getsource(obj)))
-        except (OSError, TypeError) as exc:  # pragma: no cover - defensive
-            blocks.append((label, f"# source unavailable: {exc}"))
+        # Memoise per session: `inspect.getsource` re-reads and re-parses the
+        # file, and Streamlit re-runs the whole script on every interaction, so
+        # an uncached panel would re-read every module on each widget change.
+        key = (f"_src::{getattr(obj, '__module__', '')}::"
+               f"{getattr(obj, '__qualname__', getattr(obj, '__name__', repr(obj)))}")
+        if key not in st.session_state:
+            try:
+                st.session_state[key] = inspect.getsource(obj)
+            except (OSError, TypeError) as exc:  # pragma: no cover - defensive
+                st.session_state[key] = f"# source unavailable: {exc}"
+        blocks.append((label, st.session_state[key]))
 
     with st.expander(f"🐍 {title}", expanded=expanded):
         if intro:

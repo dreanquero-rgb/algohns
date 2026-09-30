@@ -28,6 +28,12 @@ header(
 paper_lock_banner()
 settings = get_settings()
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _lab_universe():
+    """Screening universe with real betas/caps — a fixed dataset, so cache it."""
+    return sl.demo_universe()
+
+
 tabs = st.tabs([
     "🧭 Risk Profile", "🔬 Strategy Lab", "🧪 Profile Backtest",
     "🤖 Paper Trading", "🛠️ Worker", "🐍 Code",
@@ -218,7 +224,8 @@ with tabs[4]:
 # =============================================================================
 # TAB 2 — STRATEGY LAB  (rules -> screened universe -> weights -> Python)
 # =============================================================================
-with tabs[1]:
+@st.fragment
+def strategy_lab_panel() -> None:
     st.subheader("Strategy Lab — state the rules, read the code")
     st.caption(
         "The questionnaire gives a risk profile; this tab is where that becomes "
@@ -227,7 +234,7 @@ with tabs[1]:
         "runs, so it reproduces the allocation rather than approximating it."
     )
 
-    universe = sl.demo_universe()
+    universe = _lab_universe()
     if universe.empty:
         st.warning("World universe unavailable, so the screener has no input.")
     else:
@@ -348,6 +355,11 @@ with tabs[1]:
             if st.button("Send these weights to Paper Trading", type="primary"):
                 st.session_state["risk_profile_override"] = weights
                 st.success(f"{len(weights)} target weights staged for the paper account.")
+                st.rerun()   # full-app rerun so Paper Trading sees the handoff
+
+
+with tabs[1]:
+    strategy_lab_panel()
 
 
 # =============================================================================

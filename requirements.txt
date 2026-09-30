@@ -8,7 +8,7 @@
 # =============================================================================
 
 # --- Core platform & dashboard ----------------------------------------------
-streamlit>=1.36            # multipage dashboard (st.navigation API)
+streamlit>=1.37            # multipage dashboard (st.navigation) + st.fragment
 plotly>=5.20               # all charts (validated palette, interactive hover)
 pandas>=2.0
 numpy>=1.24

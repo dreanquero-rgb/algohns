@@ -32,6 +32,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
@@ -101,7 +102,8 @@ FRED_US_CURVE: dict[float, str] = {
 }
 
 _FRED_CSV = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={sid}"
-_TIMEOUT = 20
+_TIMEOUT = 8          # fail fast: a blocked host must not stall first paint
+_MAX_WORKERS = 8      # FRED series are independent, so fetch them concurrently
 
 
 # ---------------------------------------------------------------------------
@@ -289,32 +291,52 @@ def _fetch_fred(series_id: str, timeout: int = _TIMEOUT) -> pd.Series:
     return out
 
 
+def _fetch_fred_many(wanted: dict[str, str]) -> dict[str, pd.Series]:
+    """Fetch several FRED series concurrently, skipping the ones that fail.
+
+    The series are independent, so fetching them one at a time turns N network
+    round trips into N sequential latencies - 18 of them on this page, which is
+    seconds of dead time before the first paint. A small thread pool collapses
+    that to roughly one round trip; threads are the right tool because the work
+    is entirely I/O wait.
+    """
+    out: dict[str, pd.Series] = {}
+    if not wanted:
+        return out
+    with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(wanted))) as pool:
+        futures = {pool.submit(_fetch_fred, sid): label
+                   for label, sid in wanted.items()}
+        for future in as_completed(futures):
+            label = futures[future]
+            try:
+                out[label] = future.result()
+            except Exception as exc:  # noqa: BLE001 - one dead series is not fatal
+                log.info("FRED series for %s unavailable: %s", label, exc)
+    return out
+
+
 def fred_benchmark_history(codes: list[str] | None = None) -> pd.DataFrame:
     """10-year benchmark yields per country, monthly, as far back as published."""
     wanted = [c for c in (codes or list(FRED_BENCHMARK_10Y)) if c in FRED_BENCHMARK_10Y]
-    series: dict[str, pd.Series] = {}
-    for code in wanted:
-        try:
-            series[MARKETS[code].name] = _fetch_fred(FRED_BENCHMARK_10Y[code])
-        except Exception as exc:  # noqa: BLE001 - one dead series must not kill the rest
-            log.info("FRED %s (%s) unavailable: %s", code, FRED_BENCHMARK_10Y[code], exc)
-    if not series:
+    fetched = _fetch_fred_many({MARKETS[c].name: FRED_BENCHMARK_10Y[c] for c in wanted})
+    if not fetched:
         raise RuntimeError("no FRED benchmark series could be fetched")
-    return pd.DataFrame(series).sort_index()
+    # Preserve the requested order rather than completion order.
+    ordered = {MARKETS[c].name: fetched[MARKETS[c].name]
+               for c in wanted if MARKETS[c].name in fetched}
+    return pd.DataFrame(ordered).sort_index()
 
 
 def fred_us_term_structure() -> CountryCurve:
     """The full US Treasury curve from its latest published observation."""
+    fetched = _fetch_fred_many({sid: sid for sid in FRED_US_CURVE.values()})
+    by_sid = {sid: years for years, sid in FRED_US_CURVE.items()}
     rows: list[dict] = []
     as_of: str | None = None
-    for years, sid in FRED_US_CURVE.items():
-        try:
-            s = _fetch_fred(sid)
-            rows.append({"years": years, "yield": float(s.iloc[-1]),
-                         "label": sid})
-            as_of = max(as_of or "", s.index[-1].date().isoformat())
-        except Exception as exc:  # noqa: BLE001
-            log.info("FRED %s unavailable: %s", sid, exc)
+    for sid, series in fetched.items():
+        rows.append({"years": by_sid[sid], "yield": float(series.iloc[-1]),
+                     "label": sid})
+        as_of = max(as_of or "", series.index[-1].date().isoformat())
     if not rows:
         raise RuntimeError("no FRED US curve points could be fetched")
     m = MARKETS["US"]

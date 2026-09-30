@@ -13,6 +13,19 @@ from algohns.modules.backtest_suite import Backtester, PortfolioOptimizer, compu
 from algohns.modules.reference_data import spx_history
 from algohns.ui import code_panel, dependency_notice, header
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _universe_options(asset_class: str) -> dict:
+    """FinanceDatabase filter values — a fixed, offline dataset, so cache it."""
+    return universe.options(asset_class)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _universe_search(asset_class: str, filters_key: tuple, query: str,
+                     limit: int) -> pd.DataFrame:
+    return universe.search(asset_class, filters=dict(filters_key), query=query,
+                           limit=limit)
+
+
 header(
     "Universe Explorer + Backtesting & Optimization",
     "300k+ instruments (FinanceDatabase) · Max Sharpe/Min-Var/Risk-Parity/Black-Litterman · history since 1871.",
@@ -27,7 +40,8 @@ tab_universe, tab_backtest, tab_history, tab_code = st.tabs(
 # =============================================================================
 # TAB 1 — UNIVERSE EXPLORER
 # =============================================================================
-with tab_universe:
+@st.fragment
+def universe_explorer_panel() -> None:
     if not universe.available():
         st.warning("FinanceDatabase not installed → `pip install financedatabase`.")
     else:
@@ -35,7 +49,18 @@ with tab_universe:
         asset_class = c[0].selectbox("Asset class", universe.ASSET_CLASSES)
         query = c[1].text_input("Search (symbol or name)", "")
 
-        opts = universe.options(asset_class)
+        # FinanceDatabase ships 300k+ instruments and takes ~7s to load the
+        # first time. Deferring it behind a press keeps the page's first paint
+        # instant for everyone who came here for the backtester instead.
+        if st.button("📚 Load universe", type="primary", key="load_universe",
+                     help="Loads the bundled FinanceDatabase (300k+ instruments). "
+                          "A few seconds the first time, instant afterwards."):
+            st.session_state["universe_loaded"] = True
+        if not st.session_state.get("universe_loaded"):
+            st.info("Press **Load universe** to browse the instrument database.")
+            return
+
+        opts = _universe_options(asset_class)
         filters: dict[str, str] = {}
         if opts:
             fields = [f for f in ("country", "sector", "industry", "category_group",
@@ -50,7 +75,8 @@ with tab_universe:
                         filters[field] = sel
 
         try:
-            results = universe.search(asset_class, filters=filters, query=query, limit=500)
+            results = _universe_search(asset_class, tuple(sorted(filters.items())),
+                                       query, 500)
         except Exception as exc:  # noqa: BLE001
             dependency_notice(exc); results = pd.DataFrame()
 
@@ -72,10 +98,16 @@ with tab_universe:
         if st.button("➡️ Send selection to backtest", type="primary", disabled=not chosen):
             st.session_state["bt_tickers"] = " ".join(chosen)
             st.success(f"{len(chosen)} tickers sent to the Optimize & Backtest tab.")
+            # Full-app rerun so the other tab picks the handoff up; a fragment
+            # rerun alone would leave it showing the previous selection.
+            st.rerun()
 
 # =============================================================================
 # TAB 2 — OPTIMIZE & BACKTEST
 # =============================================================================
+with tab_universe:
+    universe_explorer_panel()
+
 with tab_backtest:
     default_tickers = st.session_state.get("bt_tickers", "AAPL MSFT NVDA AMZN GOOGL JPM XOM")
     c1, c2, c3 = st.columns([2, 1, 1])
