@@ -9,6 +9,8 @@ Uses the modern ``st.navigation`` API for a fast, single-process multipage app.
 """
 from __future__ import annotations
 
+import os
+
 import streamlit as st
 
 from algohns import __version__
@@ -21,6 +23,30 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# --- Secrets bridge ----------------------------------------------------------
+# The platform reads configuration from environment variables (locally via a
+# .env file). On Streamlit Community Cloud there is no .env — secrets live in
+# st.secrets — so copy any that are set there into the environment before the
+# shared settings object is built. Nothing here is overwritten if it is already
+# set, so local .env behaviour is unchanged, and missing secrets are simply
+# skipped (the app still runs, features that need a key just show "not set").
+_SECRET_KEYS = (
+    "ALPACA_API_KEY", "ALPACA_SECRET_KEY", "ALPACA_PAPER", "ALPACA_BASE_URL",
+    "ALPACA_DATA_BASE_URL", "REDIS_URL", "SEC_USER_AGENT", "DEFAULT_TAX_RESIDENCE",
+    "ALGO_AUTO_REBALANCE", "ALGO_STRATEGY", "ALGO_REBALANCE_CRON",
+    "ALGO_TARGET_WEIGHTS", "ALGO_SYNC_INTERVAL",
+)
+try:
+    for _k in _SECRET_KEYS:
+        if _k not in os.environ:
+            _v = st.secrets.get(_k)  # raises if no secrets file exists at all
+            if _v is not None:
+                os.environ[_k] = str(_v)
+    get_settings.cache_clear()  # rebuild settings now that the env is populated
+except Exception:  # noqa: BLE001 - no secrets locally is the normal case
+    pass
+
 inject_theme()
 
 
