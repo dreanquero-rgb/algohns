@@ -21,41 +21,46 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 
-# --- Surfaces & ink tokens ---------------------------------------------------
-SURFACE = "#0F172A"     # chart surface (app panel)
-PAGE = "#070B13"
-INK = "#F8FAFC"         # primary text
-INK_2 = "#94A3B8"       # secondary text
-INK_3 = "#64748B"       # muted text
-GRID = "#1E293B"        # one step off surface, recessive
+# --- Surfaces & ink tokens (black terminal) ---------------------------------
+SURFACE = "#0E0F10"     # chart surface (panel), a hair off pure black
+PAGE = "#000000"        # page black
+INK = "#F5F7F8"         # primary text
+INK_2 = "#B9C0C4"       # secondary text
+INK_3 = "#7E878C"       # muted text
+GRID = "#1C1F22"        # one step off surface, recessive
 
 # --- Brand (chrome only, never a data mark) ---------------------------------
-BRAND_GOLD = "#E2B86B"
-BRAND_CYAN = "#38BDF8"
+BRAND_GREEN = "#16C784"
+BRAND_RED = "#EA3943"
+# Back-compat aliases (older imports referenced the gold/cyan names).
+BRAND_GOLD = BRAND_GREEN
+BRAND_CYAN = BRAND_RED
 
-# --- Validated categorical series palette (dark, surface #0F172A) -----------
+# --- Categorical series palette: green/red first, then accents on black ------
+# The brand is red & green (up/down), so the palette leads with them; the
+# remaining hues keep multi-series charts legible on a black surface.
 SERIES: list[str] = [
-    "#3987e5",  # 1 blue
-    "#d95926",  # 2 orange
-    "#199e70",  # 3 aqua
-    "#c98500",  # 4 yellow
-    "#d55181",  # 5 magenta
-    "#008300",  # 6 green
-    "#9085e9",  # 7 violet
-    "#e66767",  # 8 red
+    "#16C784",  # 1 green   (up / positive)
+    "#EA3943",  # 2 red     (down / negative)
+    "#F0B90B",  # 3 amber
+    "#3B9BF0",  # 4 blue
+    "#B37FEB",  # 5 violet
+    "#FF7A45",  # 6 orange
+    "#2DD4BF",  # 7 teal
+    "#F472B6",  # 8 pink
 ]
-# Scatter / all-pairs forms are capped at the first three slots (validated
-# all-pairs); beyond that, fold into "Other" or facet.
+# Scatter / all-pairs forms are capped at the first three slots; beyond that,
+# fold into "Other" or facet.
 SERIES_ALLPAIRS_CAP = 3
 
-# Sequential ramp (single hue, light -> dark) for magnitude encodings.
-SEQ_BLUE = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
-# Diverging: blue <-> red with a neutral gray midpoint.
-DIVERGING = [[0.0, "#184f95"], [0.5, "#383835"], [1.0, "#e34948"]]
+# Sequential ramp (single hue, light -> dark green) for magnitude encodings.
+SEQ_BLUE = ["#c9f7e4", "#8fe9c6", "#4fd6a5", "#16C784", "#0f9c67", "#0b724b", "#073f2a"]
+# Diverging: red <-> green with a near-black neutral midpoint.
+DIVERGING = [[0.0, "#EA3943"], [0.5, "#14171A"], [1.0, "#16C784"]]
 
 # Status colours — reserved, never reused as "series N".
-GOOD = "#199e70"
-BAD = "#e66767"
+GOOD = "#16C784"
+BAD = "#EA3943"
 
 _FONT = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
 

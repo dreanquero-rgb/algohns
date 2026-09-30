@@ -133,19 +133,44 @@ def _persist_strategy(weights: dict) -> None:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _lab_universe():
-    """Screening universe with real betas/caps — a fixed dataset, so cache it."""
+    """Curated screening universe with real betas/caps — cache it."""
     return sl.demo_universe()
 
 
-tabs = st.tabs([
-    "🧭 Risk Profile", "🔬 Strategy Lab", "🧪 Profile Backtest",
-    "🤖 Paper Trading", "🛠️ Worker", "🐍 Code",
+# FinanceDatabase market-cap buckets, biggest first (used to keep the largest
+# names when the position cap bites, since the full DB has no numeric cap).
+CAP_ORDER = ["Mega Cap", "Large Cap", "Mid Cap", "Small Cap", "Micro Cap", "Nano Cap"]
+
+
+@st.cache_data(ttl=3600, show_spinner="Loading the full instrument universe…")
+def _full_universe():
+    """The whole FinanceDatabase equity universe (same source as Backtest).
+
+    100k+ equities. It carries sector / industry / country / currency and a
+    market-cap *band* (a category, not a number) — but no per-name beta or
+    volatility, so the risk-based filters only apply to the curated set.
+    """
+    from algohns.modules import universe as un
+    if not un.available():
+        return pd.DataFrame()
+    df = un.search("Equities", limit=1_000_000)
+    if df.empty:
+        return df
+    # Rename so the screener never mistakes the categorical cap for a number.
+    return df.rename(columns={"symbol": "ticker", "market_cap": "cap_category"})
+
+
+# Paper Trading is first on purpose: once a strategy exists it is the thing you
+# come back to, so it is what you land on.
+tab_paper, tab_risk, tab_strat, tab_bt, tab_worker, tab_code = st.tabs([
+    "🤖 Paper Trading", "🧭 Risk Profile", "🔬 Strategy Lab",
+    "🧪 Profile Backtest", "🛠️ Worker", "🐍 Code",
 ])
 
 # =============================================================================
-# TAB 1 — RISK QUESTIONNAIRE
+# RISK QUESTIONNAIRE
 # =============================================================================
-with tabs[0]:
+with tab_risk:
     st.subheader("Investor risk questionnaire")
     st.caption(
         "Fill this once — the answers are **saved to disk and reloaded on every "
@@ -215,9 +240,9 @@ with tabs[0]:
         st.success("Profile saved — use it in the **Profile Backtest** and **Paper Trading** tabs.")
 
 # =============================================================================
-# TAB 2 — INTEGRATED BACKTEST (separate from Module 3)
+# INTEGRATED BACKTEST (separate from Module 3)
 # =============================================================================
-with tabs[2]:
+with tab_bt:
     profile = st.session_state.get("risk_profile")
     if not profile:
         st.info("Compute your risk profile first (tab 1).")
@@ -253,9 +278,9 @@ with tabs[2]:
                 dependency_notice(exc)
 
 # =============================================================================
-# TAB 3 — PAPER TRADING
+# PAPER TRADING (first tab — the thing you return to once a strategy exists)
 # =============================================================================
-with tabs[3]:
+with tab_paper:
     if not settings.alpaca_configured:
         st.warning("Set ALPACA_API_KEY / ALPACA_SECRET_KEY to trade on the paper account.")
     try:
@@ -424,9 +449,9 @@ with tabs[3]:
                 _show_alpaca_error("Journal error", exc)
 
 # =============================================================================
-# TAB 4 — WORKER
+# WORKER
 # =============================================================================
-with tabs[4]:
+with tab_worker:
     st.markdown(
         "Background execution so the strategy keeps running with the browser closed:\n\n"
         "```bash\n"
@@ -454,22 +479,52 @@ def strategy_lab_panel() -> None:
         "runs, so it reproduces the allocation rather than approximating it."
     )
 
-    universe = _lab_universe()
+    src = st.radio(
+        "Universe",
+        ["Full database (FinanceDatabase — 100k+ equities)",
+         "Curated (real beta & volatility)"],
+        horizontal=True,
+        help="Full database screens every equity we hold — the same source as "
+             "Backtest & Optimize — on sector / country / market-cap band. The "
+             "curated set is smaller but carries real per-name beta and "
+             "volatility, so the risk-based filters and weightings work there.")
+    full_db = src.startswith("Full")
+    universe = _full_universe() if full_db else _lab_universe()
+
     if universe.empty:
-        st.warning("World universe unavailable, so the screener has no input.")
+        st.warning("Universe unavailable (is FinanceDatabase installed?), so the "
+                   "screener has no input.")
     else:
-        sectors = sorted(universe["sector"].dropna().unique().tolist())
-        countries = sorted(universe["country"].dropna().unique().tolist())
+        has_risk = ("beta" in universe.columns) and ("volatility" in universe.columns)
+        sectors = (sorted(universe["sector"].dropna().unique().tolist())
+                   if "sector" in universe else [])
+        countries = (sorted(universe["country"].dropna().unique().tolist())
+                     if "country" in universe else [])
 
         st.markdown("**1 · Investable-universe rules**")
-        r1 = st.columns(4)
-        beta_band = r1[0].slider("Beta band", 0.0, 2.5, (0.0, 1.30), 0.05,
-                                 help="Sensitivity to the market factor. Below 1.0 "
-                                      "is defensive.")
-        cap_min_bn = r1[1].number_input("Min market cap ($bn)", 0.0, 5000.0, 50.0, 10.0)
-        max_vol = r1[2].slider("Max volatility", 0.05, 1.00, 0.45, 0.01,
-                               help="Annualised. Approximated as beta x 16% market vol.")
-        max_pos = r1[3].number_input("Max positions", 1, 50, 12, 1)
+        beta_min = beta_max = cap_min = max_vol = None
+        cap_sel: list[str] = []
+        if has_risk:
+            r1 = st.columns(4)
+            beta_band = r1[0].slider("Beta band", 0.0, 2.5, (0.0, 1.30), 0.05,
+                                     help="Sensitivity to the market factor. "
+                                          "Below 1.0 is defensive.")
+            cap_min_bn = r1[1].number_input("Min market cap ($bn)", 0.0, 5000.0, 50.0, 10.0)
+            max_vol = r1[2].slider("Max volatility", 0.05, 1.00, 0.45, 0.01,
+                                   help="Annualised. Approximated as beta x 16% market vol.")
+            max_pos = r1[3].number_input("Max positions", 1, 50, 12, 1)
+            beta_min = beta_band[0] or None
+            beta_max = beta_band[1]
+            cap_min = cap_min_bn * 1e9 if cap_min_bn else None
+        else:
+            r1 = st.columns([3, 1])
+            cap_sel = r1[0].multiselect("Market-cap band", CAP_ORDER,
+                                        default=["Mega Cap", "Large Cap"])
+            max_pos = r1[1].number_input("Max positions", 1, 100, 25, 1)
+            st.caption("The full database has no per-name beta or volatility, so "
+                       "the beta / volatility filters and risk weightings apply "
+                       "only to the curated set. Here, screen by sector, country "
+                       "and market-cap band.")
 
         r2 = st.columns(2)
         keep_sectors = r2[0].multiselect("Only these sectors (empty = all)", sectors)
@@ -479,7 +534,8 @@ def strategy_lab_panel() -> None:
         keep_countries = r3[0].multiselect("Only these domiciles (empty = all)", countries)
         expression = r3[1].text_input(
             "Advanced filter (optional pandas expression)",
-            placeholder="beta < 1.1 & market_cap > 2e11",
+            placeholder=("beta < 1.1 & market_cap > 2e11" if has_risk
+                         else "sector == 'Technology'"),
             help="One boolean expression over the screening columns. Evaluated "
                  "with no builtins and no attribute access — it can filter rows "
                  "and nothing else.",
@@ -491,33 +547,45 @@ def strategy_lab_panel() -> None:
         rebalance_sl = st.selectbox("Rebalance", ["Q", "M", "Y", "none"], index=0,
                                     key="sl_rebal")
 
+        # For the full DB, pre-filter by market-cap band and sort so the position
+        # cap keeps the biggest names (there is no numeric cap to nlargest on).
+        screen_src = universe
+        if full_db and "cap_category" in universe.columns:
+            if cap_sel:
+                screen_src = screen_src[screen_src["cap_category"].isin(cap_sel)]
+            rank = {c: i for i, c in enumerate(CAP_ORDER)}
+            screen_src = screen_src.assign(
+                _caprank=screen_src["cap_category"].map(rank).fillna(99)
+            ).sort_values("_caprank")
+
         try:
             criteria = sl.ScreenCriteria(
-                beta_min=beta_band[0] or None,
-                beta_max=beta_band[1],
-                market_cap_min=cap_min_bn * 1e9 if cap_min_bn else None,
-                max_volatility=max_vol,
+                beta_min=beta_min, beta_max=beta_max,
+                market_cap_min=cap_min, max_volatility=max_vol,
                 sectors=tuple(keep_sectors),
                 exclude_sectors=tuple(drop_sectors),
                 countries=tuple(keep_countries),
                 max_positions=int(max_pos),
                 expression=expression.strip(),
             )
-            picks = sl.screen_universe(universe, criteria)
+            picks = sl.screen_universe(screen_src, criteria)
         except sl.FilterExpressionError as exc:
             st.error(f"Filter expression rejected: {exc}")
-            picks = universe.iloc[0:0]
+            picks = screen_src.iloc[0:0]
         except ValueError as exc:
             st.error(f"Contradictory rules: {exc}")
-            picks = universe.iloc[0:0]
+            picks = screen_src.iloc[0:0]
 
         st.markdown("**3 · The screen**")
         k = st.columns(4)
-        k[0].metric("Universe", len(universe))
-        k[1].metric("Passing the screen", len(picks))
-        if not picks.empty:
-            k[2].metric("Avg beta", f"{pd.to_numeric(picks['beta']).mean():.2f}")
-            k[3].metric("Avg volatility", f"{pd.to_numeric(picks['volatility']).mean():.1%}")
+        k[0].metric("Universe", f"{len(universe):,}")
+        k[1].metric("Passing the screen", f"{len(picks):,}")
+        if not picks.empty and "beta" in picks.columns:
+            k[2].metric("Avg beta",
+                        f"{pd.to_numeric(picks['beta'], errors='coerce').mean():.2f}")
+        if not picks.empty and "volatility" in picks.columns:
+            k[3].metric("Avg volatility",
+                        f"{pd.to_numeric(picks['volatility'], errors='coerce').mean():.1%}")
 
         if picks.empty:
             st.info("No instrument satisfies these rules — loosen a constraint.")
@@ -527,17 +595,18 @@ def strategy_lab_panel() -> None:
             shown = picks.copy()
             shown["weight %"] = [round(weights.get(str(t), 0.0) * 100, 2)
                                  for t in shown["ticker"]]
-            shown["market_cap ($bn)"] = (pd.to_numeric(shown["market_cap"],
-                                                       errors="coerce") / 1e9).round(1)
+            base_cols = [c for c in ("ticker", "name", "sector", "country")
+                         if c in shown.columns]
+            extra = [c for c in ("beta", "volatility", "cap_category")
+                     if c in shown.columns]
             st.dataframe(
-                shown[["ticker", "name", "sector", "country", "beta",
-                       "volatility", "market_cap ($bn)", "weight %"]]
+                shown[base_cols + extra + ["weight %"]]
                 .sort_values("weight %", ascending=False),
-                width="stretch", hide_index=True, height=300,
+                width="stretch", hide_index=True, height=320,
             )
 
             cc = st.columns(2)
-            wser = pd.Series(weights).sort_values(ascending=False)
+            wser = pd.Series(weights).sort_values(ascending=False).head(25)
             with cc[0]:
                 st.plotly_chart(
                     ch.hbar(wser.index, wser.values * 100,
@@ -545,32 +614,37 @@ def strategy_lab_panel() -> None:
                             value_fmt="{:.1f}", suffix="%"),
                     width="stretch")
             with cc[1]:
-                st.plotly_chart(
-                    ch.scatter(picks.assign(
-                        weight=[weights.get(str(t), 0.0) * 100 for t in picks["ticker"]]),
-                        x="beta", y="volatility", label="ticker", group="sector",
-                        title="Risk profile of the screen", xtitle="Beta",
-                        ytitle="Volatility", suffix="", height=340),
-                    width="stretch")
+                if {"beta", "volatility"} <= set(picks.columns):
+                    st.plotly_chart(
+                        ch.scatter(picks.assign(
+                            weight=[weights.get(str(t), 0.0) * 100 for t in picks["ticker"]]),
+                            x="beta", y="volatility", label="ticker", group="sector",
+                            title="Risk profile of the screen", xtitle="Beta",
+                            ytitle="Volatility", suffix="", height=340),
+                        width="stretch")
+                elif "sector" in picks.columns:
+                    comp = picks["sector"].value_counts().head(10)
+                    st.plotly_chart(
+                        ch.hbar(comp.index, comp.values,
+                                title="Screen composition by sector", height=340,
+                                value_fmt="{:.0f}"),
+                        width="stretch")
 
             st.markdown("**4 · Rules in force**")
             st.markdown("\n".join(f"- {r}" for r in criteria.describe()))
 
-            st.markdown("**5 · The generated strategy**")
             profile = st.session_state.get("risk_profile")
             code = sl.generate_strategy_code(
                 criteria, weighting, rebalance_sl,
                 profile=(profile.label if profile else "custom"),
             )
-            st.caption(
-                "Generated from the rules above. Download it and run it against "
-                "the repo to reproduce this allocation, or edit it freely there — "
-                "the app itself never executes uploaded code, which is why a "
-                "public deployment stays safe."
-            )
-            st.code(code, language="python", line_numbers=True)
-            st.download_button("⬇️ Download strategy.py", code.encode(),
-                               file_name="algohns_strategy.py", mime="text/x-python")
+            with st.expander("📄 Generated strategy (read-only equivalent)"):
+                st.caption("Generated from the rules above — the editable, "
+                           "runnable version is in section 5.")
+                st.code(code, language="python", line_numbers=True)
+                st.download_button("⬇️ Download strategy.py", code.encode(),
+                                   file_name="algohns_strategy.py",
+                                   mime="text/x-python")
 
             if st.button("Set as active strategy (→ Paper Trading)", type="primary"):
                 _persist_strategy(weights)
@@ -580,25 +654,22 @@ def strategy_lab_panel() -> None:
                 st.rerun()   # full-app rerun so Paper Trading sees the handoff
 
             st.divider()
-            st.markdown("**6 · Edit & run the strategy yourself**")
+            st.markdown("**5 · Edit & run the strategy yourself**")
             seed = (
                 "# `universe` (a DataFrame) plus screen_universe / build_weights /\n"
                 "# ScreenCriteria and pd / np are already available — no imports.\n"
                 "# Edit the rules, set a `weights` dict, then press Run.\n\n"
                 "criteria = ScreenCriteria(\n"
-                "    beta_max=1.20,\n"
-                "    market_cap_min=50e9,\n"
-                "    max_volatility=0.45,\n"
                 "    max_positions=12,\n"
                 ")\n"
                 "picks = screen_universe(universe, criteria)\n"
-                "weights = build_weights(picks, 'inverse_vol')\n"
+                "weights = build_weights(picks, 'equal')\n"
                 "print(f'{len(picks)} names selected, {len(weights)} weighted')\n"
             )
 
             def _strategy_ctx():
                 return {
-                    "universe": universe,
+                    "universe": screen_src,
                     "screen_universe": sl.screen_universe,
                     "build_weights": sl.build_weights,
                     "ScreenCriteria": sl.ScreenCriteria,
@@ -637,14 +708,14 @@ def strategy_lab_panel() -> None:
                     st.rerun()
 
 
-with tabs[1]:
+with tab_strat:
     strategy_lab_panel()
 
 
 # =============================================================================
-# TAB 5 — CODE  (the engine, pulled live from source)
+# CODE  (the engine, pulled live from source)
 # =============================================================================
-with tabs[5]:
+with tab_code:
     st.subheader("Engine source")
     st.caption(
         "Everything the auto-trader runs, pulled live with `inspect` so the code "

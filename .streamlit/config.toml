@@ -1,10 +1,10 @@
-# Algohns V12 — Streamlit theme (matches the V11 gold / cyan / midnight brand).
+# Algohns V12 — Streamlit theme: black terminal, red/green accents.
 [theme]
 base = "dark"
-primaryColor = "#E2B86B"
-backgroundColor = "#070B13"
-secondaryBackgroundColor = "#0F172A"
-textColor = "#F8FAFC"
+primaryColor = "#16C784"
+backgroundColor = "#000000"
+secondaryBackgroundColor = "#0E0F10"
+textColor = "#F5F7F8"
 font = "sans serif"
 
 [server]

@@ -7,36 +7,44 @@ from __future__ import annotations
 
 import streamlit as st
 
-GOLD = "#E2B86B"
-CYAN = "#38BDF8"
-MIDNIGHT = "#070B13"
-SLATE = "#0F172A"
-INK = "#F8FAFC"
+# Brand palette: black terminal with red/green accents.
+# Names kept as GOLD/CYAN for backward-compatible imports; GOLD is now the
+# up/green accent and CYAN the down/red accent.
+GOLD = "#16C784"   # green (up / positive / primary accent)
+CYAN = "#EA3943"   # red (down / negative)
+GREEN = GOLD
+RED = CYAN
+MIDNIGHT = "#000000"
+SLATE = "#0E0F10"
+INK = "#F5F7F8"
 
 _CSS = f"""
 <style>
 :root {{
+    --green: {GREEN};
+    --red: {RED};
     --gold: {GOLD};
     --cyan: {CYAN};
     --midnight: {MIDNIGHT};
 }}
 .stApp {{
-    background: radial-gradient(1200px 600px at 20% -10%, #10233a 0%, {MIDNIGHT} 55%);
+    background: radial-gradient(1100px 560px at 18% -12%, #0a1a13 0%, {MIDNIGHT} 58%);
 }}
-h1, h2, h3 {{ letter-spacing: .3px; }}
+h1, h2, h3 {{ letter-spacing: .3px; color: {INK}; }}
 .algohns-badge {{
     display:inline-block; padding:2px 10px; border-radius:999px;
-    background:linear-gradient(90deg, {GOLD}, {CYAN}); color:{MIDNIGHT};
+    background:linear-gradient(90deg, {GREEN}, {RED}); color:#000000;
     font-weight:700; font-size:.72rem; text-transform:uppercase;
 }}
 .algohns-card {{
-    background: rgba(15,23,42,.65); border:1px solid rgba(56,189,248,.18);
+    background: rgba(14,15,16,.85); border:1px solid rgba(22,199,132,.28);
     border-radius:16px; padding:18px 20px; margin-bottom:12px;
 }}
-div[data-testid="stMetricValue"] {{ color: {GOLD}; }}
+.algohns-card:hover {{ border-color: rgba(22,199,132,.55); }}
+div[data-testid="stMetricValue"] {{ color: {GREEN}; }}
 .paper-lock {{
-    background: rgba(226,184,107,.12); border:1px solid {GOLD};
-    color:{GOLD}; padding:8px 14px; border-radius:12px; font-weight:600;
+    background: rgba(22,199,132,.12); border:1px solid {GREEN};
+    color:{GREEN}; padding:8px 14px; border-radius:12px; font-weight:600;
 }}
 </style>
 """
@@ -140,6 +148,31 @@ def code_panel(
 # the editor is always live but "Run" is only active where it is safe to be:
 # your own machine / Docker, never a public deployment.
 # ---------------------------------------------------------------------------
+def _code_input(value: str, *, key: str, height: int = 340) -> str:
+    """A real, editable code editor (Ace) with a plain-textarea fallback.
+
+    streamlit-ace gives a syntax-highlighted, unmistakably-editable editor. If
+    it is not installed (or fails to load) it falls back to a tall text area,
+    which is still fully editable — the point is that the code on screen is
+    something the user can change, not a read-only listing.
+    """
+    try:
+        from streamlit_ace import st_ace
+
+        out = st_ace(
+            value=value, language="python", theme="tomorrow_night",
+            keybinding="vscode", font_size=13, tab_size=4, show_gutter=True,
+            wrap=False, auto_update=False, min_lines=12, height=height,
+            key=f"__ace__::{key}",
+        )
+        return out if out is not None else value
+    except Exception:  # noqa: BLE001 - component missing → editable textarea
+        return st.text_area(
+            "code", value=value, height=height, key=f"__ta__::{key}",
+            label_visibility="collapsed",
+        )
+
+
 def code_editor(
     seed_code: str,
     context_factory,
@@ -174,16 +207,13 @@ def code_editor(
     enabled = get_settings().allow_code_exec
     if not enabled:
         st.info(
-            "✏️ **Editing is live; running is off on this deployment.** "
-            "Set `ALGO_ALLOW_CODE_EXEC=true` (in your local `.env` or the Docker "
-            "environment) to run edited code. Public deployments keep it off so "
-            "the page cannot be turned into an arbitrary-code console."
+            "✏️ **You can type in the editor below; the ▶ Run button is off on "
+            "this deployment.** Set `ALGO_ALLOW_CODE_EXEC=true` (local `.env` or "
+            "the Docker/Streamlit environment) to run edited code. Public "
+            "deployments keep running off so the page can't become a code console."
         )
 
-    code = st.text_area(
-        "code", value=st.session_state[state_key], height=height,
-        key=f"__ta__::{key}", label_visibility="collapsed",
-    )
+    code = _code_input(st.session_state[state_key], key=key, height=height)
     st.session_state[state_key] = code
 
     cols = st.columns([1, 1, 3])
