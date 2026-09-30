@@ -62,6 +62,7 @@ __all__ = [
     "cir_paths",
     "PROCESSES",
     "simulate_paths",
+    "simulate_summary",
     "terminal_statistics",
 ]
 
@@ -147,6 +148,11 @@ class NewsModulation:
         return _arr(self.drift_shift, 0.0), vol, lam
 
 
+def _f32(a) -> np.ndarray:
+    """Cast a parameter array to float32 so it cannot promote float32 shocks."""
+    return np.asarray(a, dtype=np.float32)
+
+
 def _shape(n_paths: int, n_steps: int) -> tuple[int, int]:
     if n_paths < 1 or n_steps < 1:
         raise ValueError("n_paths and n_steps must be >= 1")
@@ -170,11 +176,12 @@ def gbm_paths(
     n_paths, n_steps = _shape(n_paths, n_steps)
     dt = 1.0 / p.steps_per_year
     d_mu, vol_mult, _ = (news or NewsModulation()).resolve(n_steps)
-    sig = p.sigma * vol_mult
-    mu = p.mu + d_mu
-    z = rng.standard_normal((n_paths, n_steps))
-    incr = (mu - 0.5 * sig**2) * dt + sig * np.sqrt(dt) * z
-    return _accumulate(s0, incr)
+    sig, mu = _f32(p.sigma * vol_mult), _f32(p.mu + d_mu)
+    z = rng.standard_normal((n_paths, n_steps), dtype=np.float32)
+    # In-place so no float64 intermediate is ever materialised.
+    z *= _f32(sig * np.sqrt(dt))
+    z += _f32((mu - 0.5 * sig**2) * dt)
+    return _accumulate(s0, z)
 
 
 def student_t_paths(
@@ -191,12 +198,12 @@ def student_t_paths(
     n_paths, n_steps = _shape(n_paths, n_steps)
     dt = 1.0 / p.steps_per_year
     d_mu, vol_mult, _ = (news or NewsModulation()).resolve(n_steps)
-    sig = p.sigma * vol_mult
-    mu = p.mu + d_mu
-    t_raw = rng.standard_t(p.df, size=(n_paths, n_steps))
-    z = t_raw / np.sqrt(p.df / (p.df - 2.0))          # unit variance
-    incr = (mu - 0.5 * sig**2) * dt + sig * np.sqrt(dt) * z
-    return _accumulate(s0, incr)
+    sig, mu = _f32(p.sigma * vol_mult), _f32(p.mu + d_mu)
+    z = rng.standard_t(p.df, size=(n_paths, n_steps)).astype(np.float32)
+    z /= np.float32(np.sqrt(p.df / (p.df - 2.0)))     # unit variance
+    z *= _f32(sig * np.sqrt(dt))
+    z += _f32((mu - 0.5 * sig**2) * dt)
+    return _accumulate(s0, z)
 
 
 def merton_paths(
@@ -220,18 +227,19 @@ def merton_paths(
     lam = np.maximum(p.jump_intensity + d_lam, 0.0)
 
     k = np.exp(p.jump_mean + 0.5 * p.jump_vol**2) - 1.0      # E[J] - 1
-    z = rng.standard_normal((n_paths, n_steps))
-    # Number of jumps per step, then their summed log size.
-    counts = rng.poisson(lam * dt, size=(n_paths, n_steps))
-    # Sum of `counts` iid normals is normal(count*m, count*s^2).
-    jump_log = np.where(
-        counts > 0,
-        counts * p.jump_mean
-        + np.sqrt(np.maximum(counts, 0)) * p.jump_vol * rng.standard_normal((n_paths, n_steps)),
-        0.0,
-    )
-    incr = (mu - lam * k - 0.5 * sig**2) * dt + sig * np.sqrt(dt) * z + jump_log
-    return _accumulate(s0, incr)
+    z = rng.standard_normal((n_paths, n_steps), dtype=np.float32)
+    z *= _f32(sig * np.sqrt(dt))
+    z += _f32((mu - lam * k - 0.5 * sig**2) * dt)
+    # Jump component. The sum of `count` iid normals is normal(count*m,
+    # count*s^2), so one draw per step suffices however many jumps landed.
+    counts = rng.poisson(lam * dt, size=(n_paths, n_steps)).astype(np.float32)
+    jump = rng.standard_normal((n_paths, n_steps), dtype=np.float32)
+    jump *= np.sqrt(counts, dtype=np.float32)
+    jump *= np.float32(p.jump_vol)
+    counts *= np.float32(p.jump_mean)
+    jump += counts
+    z += jump
+    return _accumulate(s0, z)
 
 
 def heston_paths(
@@ -256,7 +264,7 @@ def heston_paths(
     # News scales the variance level, so vol_multiplier stays comparable to GBM.
     var_mult = vol_mult**2
     v = np.full(n_paths, float(p.theta if v0 is None else v0))
-    log_s = np.zeros((n_paths, n_steps + 1))
+    log_s = np.zeros((n_paths, n_steps + 1), dtype=np.float32)
     sqrt_dt = np.sqrt(dt)
     for i in range(n_steps):
         z1 = rng.standard_normal(n_paths)
@@ -267,7 +275,9 @@ def heston_paths(
         )
         v = v + p.kappa * (p.theta - np.maximum(v, 0.0)) * dt \
             + p.xi * np.sqrt(np.maximum(v, 0.0)) * sqrt_dt * z2
-    return float(s0) * np.exp(log_s)
+    np.exp(log_s, out=log_s)
+    log_s *= np.float32(s0)
+    return log_s
 
 
 # ---------------------------------------------------------------------------
@@ -347,12 +357,22 @@ def feller_condition(kappa: float, theta: float, sigma: float) -> bool:
 # Registry + helpers
 # ---------------------------------------------------------------------------
 def _accumulate(s0: float, log_increments: np.ndarray) -> np.ndarray:
-    """Turn per-step log increments into a level path starting at s0."""
-    log_path = np.concatenate(
-        [np.zeros((log_increments.shape[0], 1)), np.cumsum(log_increments, axis=1)],
-        axis=1,
-    )
-    return float(s0) * np.exp(log_path)
+    """Turn per-step log increments into a level path starting at s0.
+
+    Written for memory, not brevity. The obvious form
+    ``s0 * exp(concat([0, cumsum(incr)]))`` allocates four full arrays; on a
+    10,000 x 2,520 grid that peaked at ~800 MB, which OOM-kills a 1 GB
+    container. Accumulating in place into one preallocated float32 buffer holds
+    the same job to ~200 MB. float32 carries ~7 significant digits, far more
+    than a simulated price path means.
+    """
+    n_paths, n_steps = log_increments.shape
+    out = np.empty((n_paths, n_steps + 1), dtype=np.float32)
+    out[:, 0] = 0.0
+    np.cumsum(log_increments, axis=1, out=out[:, 1:])
+    np.exp(out, out=out)
+    out *= np.float32(s0)
+    return out
 
 
 PROCESSES: dict[str, str] = {
@@ -377,6 +397,68 @@ def simulate_paths(
     if process not in fns:
         raise KeyError(f"unknown process {process!r}; choose from {sorted(fns)}")
     return fns[process](s0, p, n_paths, n_steps, rng, news)
+
+
+def simulate_summary(
+    process: str, s0: float, p: ProcessParams, n_paths: int, n_steps: int,
+    rng: np.random.Generator, news: NewsModulation | None = None,
+    *, keep_cols: int = 260, chunk_paths: int = 2_000,
+) -> dict:
+    """Monte Carlo in path-chunks, keeping only what a chart or a stat needs.
+
+    Materialising every path is what makes a large simulation fragile in a
+    1 GB container: 10,000 paths x 2,520 steps is ~100 MB of output and several
+    times that in intermediates. Nothing downstream needs it. A fan chart reads
+    ~260 time points, and the risk statistics need each path's terminal value
+    and its own deepest drawdown - both reducible per chunk.
+
+    So paths are generated `chunk_paths` at a time and immediately reduced,
+    which bounds peak memory at roughly one chunk regardless of `n_paths`, and
+    keeps the percentiles exact (they are computed on the retained columns for
+    every path, not estimated).
+
+    Returns ``{"years", "fan", "terminal_returns", "stats"}``.
+    """
+    n_paths, n_steps = _shape(n_paths, n_steps)
+    cols = np.unique(np.linspace(0, n_steps, min(keep_cols, n_steps + 1)).astype(int))
+    kept: list[np.ndarray] = []
+    terminal = np.empty(n_paths, dtype=np.float32)
+    drawdown = np.empty(n_paths, dtype=np.float32)
+
+    done = 0
+    while done < n_paths:
+        size = min(chunk_paths, n_paths - done)
+        block = simulate_paths(process, s0, p, size, n_steps, rng, news)
+        kept.append(block[:, cols].copy())
+        terminal[done:done + size] = block[:, -1]
+        running = np.maximum.accumulate(block, axis=1)
+        np.divide(block, running, out=block)
+        drawdown[done:done + size] = block.min(axis=1) - 1.0
+        del block, running
+        done += size
+
+    fan_source = np.concatenate(kept, axis=0)
+    del kept
+    total_return = terminal / np.float32(s0) - 1.0
+    q05 = float(np.quantile(total_return, 0.05))
+    tail = total_return[total_return <= q05]
+    return {
+        "years": cols / float(p.steps_per_year),
+        "fan": {q: np.percentile(fan_source, q, axis=0) for q in (5, 25, 50, 75, 95)},
+        "terminal_returns": total_return,
+        "stats": {
+            "mean_return": float(total_return.mean()),
+            "median_return": float(np.median(total_return)),
+            "std_return": float(total_return.std(ddof=1)) if total_return.size > 1 else 0.0,
+            "var_95": q05,
+            "expected_shortfall_95": float(tail.mean()) if tail.size else q05,
+            "worst_return": float(total_return.min()),
+            "best_return": float(total_return.max()),
+            "prob_loss": float((total_return < 0).mean()),
+            "max_drawdown": float(drawdown.min()),
+            "paths": int(n_paths),
+        },
+    }
 
 
 def terminal_statistics(paths: np.ndarray) -> dict[str, float]:

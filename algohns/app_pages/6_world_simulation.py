@@ -281,17 +281,20 @@ with tab_mc:
     @st.cache_data(ttl=900, show_spinner="Drawing Monte Carlo paths…")
     def _mc(process: str, mu: float, sigma: float, years: int, paths: int,
             lam: float, df: float, seed: int):
+        # Chunked: peak memory stays ~50-90 MB even at 10k paths x 10y, where
+        # materialising every path peaked at ~800 MB and OOM-killed a 1 GB
+        # container. Percentiles are still exact.
         params = sto.ProcessParams(
             mu=mu, sigma=sigma, steps_per_year=252, df=df,
             jump_intensity=lam, jump_mean=-0.03, jump_vol=0.10,
             kappa=2.0, theta=sigma**2, xi=0.30, rho=-0.7,
         )
-        rng = np.random.default_rng(seed)
-        arr = sto.simulate_paths(process, 100.0, params, paths, 252 * years, rng)
-        return arr, sto.terminal_statistics(arr)
+        return sto.simulate_summary(process, 100.0, params, paths, 252 * years,
+                                    np.random.default_rng(seed))
 
-    paths_arr, stats = _mc(process, mu_pct / 100, sigma_pct / 100, years_mc,
-                           n_paths, jump_lambda, df_t, int(mc_seed))
+    summary = _mc(process, mu_pct / 100, sigma_pct / 100, years_mc,
+                  n_paths, jump_lambda, df_t, int(mc_seed))
+    stats = summary["stats"]
 
     k = st.columns(5)
     k[0].metric("Median return", f"{stats['median_return']:.1%}")
@@ -303,12 +306,8 @@ with tab_mc:
     k[4].metric("Probability of loss", f"{stats['prob_loss']:.0%}")
 
     # --- Fan chart: the distribution through time, not one path -------------
-    pcts = [5, 25, 50, 75, 95]
-    step_idx = np.linspace(0, paths_arr.shape[1] - 1, min(260, paths_arr.shape[1])).astype(int)
-    fan = pd.DataFrame(
-        {f"p{q}": np.percentile(paths_arr[:, step_idx], q, axis=0) for q in pcts},
-        index=(step_idx / 252.0),
-    )
+    fan = pd.DataFrame({f"p{q}": v for q, v in summary["fan"].items()},
+                       index=summary["years"])
     fan.index.name = "Years"
     st.plotly_chart(
         ch.line(fan, title=f"Monte Carlo fan — {sto.PROCESSES[process]}", height=380),
@@ -323,8 +322,7 @@ with tab_mc:
     # --- Terminal distribution ---------------------------------------------
     d1, d2 = st.columns(2)
     with d1:
-        terminal_ret = paths_arr[:, -1] / paths_arr[:, 0] - 1.0
-        counts, edges = np.histogram(terminal_ret, bins=40)
+        counts, edges = np.histogram(summary["terminal_returns"], bins=40)
         centres = [f"{(edges[i] + edges[i + 1]) / 2:.0%}" for i in range(len(counts))]
         st.plotly_chart(
             ch.bar(centres, counts, title="Terminal return distribution",
@@ -363,9 +361,8 @@ with tab_mc:
                 mu=mu, sigma=sigma, steps_per_year=252, df=df,
                 jump_intensity=lam, jump_mean=-0.03, jump_vol=0.10,
                 kappa=2.0, theta=sigma**2, xi=0.30, rho=-0.7)
-            arr = sto.simulate_paths(name, 100.0, params, paths,
-                                     252 * years, np.random.default_rng(seed))
-            s = sto.terminal_statistics(arr)
+            s = sto.simulate_summary(name, 100.0, params, paths, 252 * years,
+                                     np.random.default_rng(seed))["stats"]
             rows[name] = {
                 "Mean %": s["mean_return"] * 100,
                 "Median %": s["median_return"] * 100,
@@ -424,10 +421,10 @@ with tab_mc:
                                   steps_per_year=252, df=df_t,
                                   jump_intensity=jump_lambda, jump_mean=-0.03,
                                   jump_vol=0.10, theta=(sigma_pct / 100) ** 2)
-    quiet = sto.simulate_paths(process, 100.0, mc_params, 600, steps_mc,
-                               np.random.default_rng(int(mc_seed)))
-    newsy = sto.simulate_paths(process, 100.0, mc_params, 600, steps_mc,
-                               np.random.default_rng(int(mc_seed)), modulation)
+    quiet = sto.simulate_summary(process, 100.0, mc_params, 600, steps_mc,
+                                 np.random.default_rng(int(mc_seed)))
+    newsy = sto.simulate_summary(process, 100.0, mc_params, 600, steps_mc,
+                                 np.random.default_rng(int(mc_seed)), modulation)
 
     n1, n2 = st.columns(2)
     with n1:
@@ -439,18 +436,16 @@ with tab_mc:
             width="stretch")
     with n2:
         band = pd.DataFrame({
-            "No news p5": np.percentile(quiet[:, step_idx], 5, axis=0),
-            "No news p95": np.percentile(quiet[:, step_idx], 95, axis=0),
-            "With news p5": np.percentile(newsy[:, step_idx], 5, axis=0),
-            "With news p95": np.percentile(newsy[:, step_idx], 95, axis=0),
-        }, index=step_idx / 252.0)
+            "No news p5": quiet["fan"][5], "No news p95": quiet["fan"][95],
+            "With news p5": newsy["fan"][5], "With news p95": newsy["fan"][95],
+        }, index=quiet["years"])
         band.index.name = "Years"
         st.plotly_chart(
             ch.line(band, title="Outcome band — news widens the distribution",
                     height=320),
             width="stretch")
 
-    qs, ns = sto.terminal_statistics(quiet), sto.terminal_statistics(newsy)
+    qs, ns = quiet["stats"], newsy["stats"]
     e = st.columns(4)
     e[0].metric("VaR 95 — no news", f"{qs['var_95']:.1%}")
     e[1].metric("VaR 95 — with news", f"{ns['var_95']:.1%}",
@@ -472,6 +467,7 @@ with tab_mc:
     kappa_r = r2c.slider("Mean-reversion speed κ", 0.1, 5.0, 1.2, 0.1)
     theta_r = r3c.slider("Long-run level θ (%)", -1.0, 8.0, 2.0, 0.1) / 100
     rate_steps = 252 * years_mc
+    step_idx = np.unique(np.linspace(0, rate_steps, min(260, rate_steps + 1)).astype(int))
     vas = sto.vasicek_paths(r0, kappa_r, theta_r, 0.010, 600, rate_steps, 252,
                             np.random.default_rng(int(mc_seed)))
     cir = sto.cir_paths(max(r0, 0.0001), kappa_r, max(theta_r, 0.0001), 0.06,

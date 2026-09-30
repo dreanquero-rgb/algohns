@@ -21,6 +21,7 @@ from algohns.modules.stochastic import (
     heston_paths,
     merton_paths,
     simulate_paths,
+    simulate_summary,
     student_t_paths,
     terminal_statistics,
     vasicek_paths,
@@ -249,3 +250,67 @@ class TestRegistryAndStats:
         assert stats["worst_return"] <= stats["var_95"]
         assert 0.0 <= stats["prob_loss"] <= 1.0
         assert stats["max_drawdown"] <= 0.0
+
+
+# ------------------------------------------------- chunked summary driver
+class TestSimulateSummary:
+    """The chunked driver must agree with the full-array path, not approximate it."""
+
+    def test_stats_match_the_full_array_computation(self):
+        p = ProcessParams(mu=0.06, sigma=0.25, steps_per_year=STEPS)
+        full = gbm_paths(100.0, p, 4_000, STEPS, _rng(81))
+        ref = terminal_statistics(full)
+        got = simulate_summary("gbm", 100.0, p, 4_000, STEPS, _rng(81),
+                               chunk_paths=750)["stats"]
+        for key in ("mean_return", "median_return", "var_95",
+                    "expected_shortfall_95", "worst_return", "best_return",
+                    "prob_loss", "max_drawdown"):
+            assert got[key] == pytest.approx(ref[key], abs=2e-3), key
+        assert got["paths"] == 4_000
+
+    def test_chunking_does_not_change_the_result(self):
+        p = ProcessParams(mu=0.05, sigma=0.2, steps_per_year=STEPS)
+        a = simulate_summary("gbm", 100.0, p, 3_000, 252, _rng(83), chunk_paths=3_000)
+        b = simulate_summary("gbm", 100.0, p, 3_000, 252, _rng(83), chunk_paths=500)
+        assert a["stats"]["var_95"] == pytest.approx(b["stats"]["var_95"], abs=1e-6)
+        assert np.allclose(a["fan"][50], b["fan"][50], atol=1e-5)
+
+    def test_fan_percentiles_are_ordered_and_sized(self):
+        p = ProcessParams(steps_per_year=STEPS)
+        out = simulate_summary("gbm", 100.0, p, 1_000, 504, _rng(85), keep_cols=100)
+        years, fan = out["years"], out["fan"]
+        assert len(years) <= 100 and years[0] == 0.0
+        assert years[-1] == pytest.approx(504 / STEPS, rel=1e-6)
+        for q in (5, 25, 50, 75, 95):
+            assert fan[q].shape == years.shape
+        # Percentile bands can never cross.
+        assert (fan[5] <= fan[50]).all() and (fan[50] <= fan[95]).all()
+
+    def test_every_process_runs_through_the_driver(self):
+        p = ProcessParams(steps_per_year=STEPS, jump_intensity=2.0)
+        for name in PROCESSES:
+            out = simulate_summary(name, 100.0, p, 800, 252, _rng(87), chunk_paths=300)
+            assert out["stats"]["paths"] == 800
+            assert np.isfinite(out["terminal_returns"]).all()
+            assert out["stats"]["max_drawdown"] <= 0.0
+
+    def test_drawdown_is_per_path_not_cross_sectional(self):
+        """Each path's own peak-to-trough, so chunking cannot distort it."""
+        p = ProcessParams(mu=0.0, sigma=0.5, steps_per_year=STEPS)
+        one = simulate_summary("gbm", 100.0, p, 1, 252, _rng(89))
+        path = gbm_paths(100.0, p, 1, 252, _rng(89))
+        expected = float((path / np.maximum.accumulate(path, axis=1) - 1.0).min())
+        assert one["stats"]["max_drawdown"] == pytest.approx(expected, abs=1e-5)
+
+    def test_news_modulation_flows_through_the_driver(self):
+        p = ProcessParams(mu=0.0, sigma=0.15, steps_per_year=STEPS)
+        calm = simulate_summary("gbm", 100.0, p, 1_500, STEPS, _rng(91))
+        storm = simulate_summary("gbm", 100.0, p, 1_500, STEPS, _rng(91),
+                                 NewsModulation(vol_multiplier=np.full(STEPS, 2.5)))
+        assert storm["stats"]["std_return"] > calm["stats"]["std_return"] * 1.8
+
+    def test_paths_are_float32_to_bound_memory(self):
+        """float32 halves the footprint; a simulated path needs nothing more."""
+        p = ProcessParams(steps_per_year=STEPS)
+        assert gbm_paths(100.0, p, 10, 20, _rng()).dtype == np.float32
+        assert heston_paths(100.0, p, 10, 20, _rng()).dtype == np.float32
