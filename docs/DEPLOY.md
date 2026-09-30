@@ -1,120 +1,60 @@
-# Deploying Algohns V12
+# Deploying Algohns
 
-The V12 platform is a **Python / Streamlit** application. It cannot run inside a
-Cloudflare Worker (Workers execute JS/WASM in a V8 isolate and cannot host a
-long-lived Python server with native deps like NumPy/SciPy/QuantLib). The
-recommended setup is:
+The platform is a Python app (scipy / numpy / pandas / Streamlit). The compute —
+the bond engine, the Nelson-Siegel curve fit, the Monte Carlo — **must** run on
+a Python server; it cannot run in a Cloudflare Worker (those execute JS/WASM
+only). So "which host" is really "which Python host".
 
-1. **Host the dashboard** on Streamlit Community Cloud (free) — or any Python host.
-2. **Keep the `algohns.dreanquero.workers.dev` domain** by turning the Cloudflare Worker
-   into a redirect that forwards to the live app.
+## TL;DR — what to use
 
----
+| Goal | Use | Cold start | Cost |
+|------|-----|-----------|------|
+| Demo on your own screen | **Docker on your PC** | none (warm) | free |
+| Always-on public URL | **Docker image on Render / Railway / Fly / a VPS** | none on a paid plan | €0–7/mo |
+| Zero-effort crash fix only | **Pin Python 3.11 on Streamlit Cloud** | still sleeps | free |
 
-## Part 1 — Host the dashboard on Streamlit Community Cloud
+The one thing to know: **Streamlit *Cloud* is the slow/broken part, not the
+app.** Its free tier sleeps (≈20 s cold start) and runs bleeding-edge Python
+3.14, whose Arrow path crashed the order journal. This repo's `Dockerfile` pins
+Python 3.11 and any container host keeps it warm — which removes both problems
+without changing a line of the app.
 
-1. Push this repo to GitHub (done — branch `main`).
-2. Go to <https://share.streamlit.io> and sign in with GitHub.
-3. **New app → From existing repo**:
-   - Repository: `dreanquero-rgb/algohns`
-   - Branch: `main`
-   - Main file path: `app.py`
-4. **Advanced settings → Secrets** — paste your configuration (TOML):
-   ```toml
-   ALPACA_API_KEY = "…"
-   ALPACA_SECRET_KEY = "…"
-   ALPACA_PAPER = "true"
-   SEC_USER_AGENT = "Your Name your.email@example.com"
-   DEFAULT_TAX_RESIDENCE = "IT"
-   ```
-   Streamlit exposes these as environment variables, which `algohns/config/settings.py` reads.
-5. **Deploy.** You get a URL like `https://algohns.streamlit.app`.
-
-### Requirements: lean vs full
-- **`requirements.txt` is the LEAN, Cloud-safe set** — it installs cleanly on the
-  ~1 GB Community Cloud builder (verified: no compilation, all wheels). This is
-  what Streamlit Cloud installs automatically. The platform boots fully on it;
-  every heavy feature degrades gracefully and each page shows what to add.
-- **`requirements-full.txt` enables every feature** (local / Docker): it adds the
-  build-fragile or heavy extras deliberately kept off Cloud:
-  - `QuantLib` — bond cross-check (pure-python engine works without it).
-  - `PyPortfolioOpt` + `cvxpy` — convex optimizers (a NumPy optimizer fallback is
-    built in, so Max-Sharpe/Min-Var/Risk-Parity still work on Cloud).
-  - `spaCy` — Module 4 NER (RegEx extraction works without it).
-  - `celery[redis]`, `redis`, `APScheduler` — background workers (not runnable on
-    Streamlit Cloud anyway; use Docker — see Part 3).
-  - `ffn` — extended performance stats cross-check.
-- `borsa-italiana-scraping` is GPL-3.0 and **not on PyPI**; Module 1 uses a
-  built-in requests+BeautifulSoup scraper instead, so it is not required.
-
----
-
-## Part 2 — Point the Cloudflare Worker at the app (redirect)
-
-The Worker (`_worker.js`) now redirects every request to the URL in `APP_URL`.
+## Option A — Docker on your PC (best for the presentation)
 
 ```bash
-npm install                       # installs wrangler
-wrangler login                    # your Cloudflare account
-
-# Set the live app URL (either as a var in wrangler.toml or as a secret):
-wrangler secret put APP_URL       # paste https://algohns.streamlit.app
-#   …or edit [vars] APP_URL in wrangler.toml
-
-npm run deploy                    # wrangler deploy --name algohns
+cp .env.example .env          # put your Alpaca paper keys in .env
+docker compose up -d --build  # dashboard + redis + worker + beat
 ```
+Open http://localhost:8501 . Instant, warm, Python 3.11, and the auto-trading
+worker runs too. Stop with `docker compose down`.
 
-Verify:
-```bash
-curl -I https://algohns.dreanquero.workers.dev/           # -> 302 Location: https://algohns.streamlit.app/
-curl  https://algohns.dreanquero.workers.dev/__redirect_health   # -> {"ok":true,"target":"…"}
-```
+## Option B — always-on public URL (Render, one click)
 
-Until `APP_URL` is set, the Worker serves a branded "coming online" landing page.
-The legacy V11 application is preserved at `legacy/_worker_v11.js`.
+1. Push this repo to GitHub (already done).
+2. On https://render.com : **New + → Blueprint**, select the repo. Render reads
+   `render.yaml`, builds the Dockerfile, and injects `$PORT`.
+3. In the service's **Environment**, set `ALPACA_API_KEY` and
+   `ALPACA_SECRET_KEY` (marked `sync: false`, so they live only in Render).
+4. Free plan sleeps after ~15 min idle; switch the plan to **Starter** for
+   always-on.
 
----
+Railway and Fly.io work the same way from the same Dockerfile:
+- **Railway**: New Project → Deploy from repo → it detects the Dockerfile.
+- **Fly.io**: `fly launch` (accepts the Dockerfile), `fly secrets set ALPACA_API_KEY=... ALPACA_SECRET_KEY=...`, `fly deploy`.
+- **VPS** (Hetzner ~€4/mo, etc.): install Docker, `git clone`, fill `.env`,
+  `docker compose up -d`. This is the cheapest genuinely always-on option and
+  runs the trading worker as well.
 
-## Part 3 — Alternative: full stack via Docker (worker + beat included)
+## Option C — stay on Streamlit Cloud but stop the crash
 
-For continuous background auto-trading (Celery + Redis), host the container
-stack instead of Streamlit Cloud:
+In the app's settings on share.streamlit.io, set the **Python version to 3.11**
+(or 3.12). That alone fixes the Python-3.14 Arrow crash. It does **not** fix the
+cold start — the free tier still sleeps — so warm it a few minutes before you
+present.
 
-```bash
-cp .env.example .env      # fill in Alpaca paper keys etc.
-docker compose up --build # dashboard :8501 + redis + celery worker + beat
-```
+## Note on the trading worker
 
-Deploy the same `Dockerfile` to Render, Railway, Fly.io or any container host.
-Point the Cloudflare `APP_URL` at that host's URL exactly as in Part 2.
-
----
-
-## Module 6 and the globe
-
-The World Simulation page embeds `public/world/index.html`, a self-contained
-93KB page with its world data inlined. Nothing extra to configure — it needs
-no API key and no network.
-
-After changing the universe, the supply links or the event catalogue,
-regenerate it:
-
-```bash
-python scripts/build_world.py
-```
-
-CI enforces this: the `world-data-is-current` job rebuilds the payload and
-fails if it differs from what is committed, because the globe inlines its
-data and would otherwise silently ship a stale copy.
-
-## Current status
-
-Nothing is deployed yet. The two remaining steps are both credential steps
-that cannot be done from a code session:
-
-1. **Streamlit Community Cloud** — connect the repo, main file `app.py`,
-   branch `main` (Part 1 above).
-2. **Cloudflare Worker** — add `CLOUDFLARE_API_TOKEN` and
-   `CLOUDFLARE_ACCOUNT_ID` as repository secrets so
-   `.github/workflows/deploy-worker.yml` can run, then set `APP_URL` to the
-   live Streamlit URL so the domain forwards to it.
+The background worker that rebalances on a schedule needs a host that stays up
+(Docker on your PC, a VPS, or a Render/Railway *worker* service). Streamlit
+Cloud cannot run it — it has no persistent background process. See the
+`worker`/`beat` services in `docker-compose.yml`.

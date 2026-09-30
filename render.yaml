@@ -1,0 +1,27 @@
+# Render Blueprint — deploy Algohns as a warm, always-reachable web service.
+# One-click: push this repo to GitHub, then on render.com choose
+# "New +" -> "Blueprint" and point it at the repo. Render reads this file,
+# builds the Dockerfile (Python 3.11), and injects $PORT automatically.
+#
+# The free plan sleeps after ~15 min idle; the Starter plan (a few $/mo) stays
+# always on — pick that if you need it live without warming it first.
+services:
+  - type: web
+    name: algohns
+    runtime: docker
+    plan: free            # change to "starter" for always-on
+    healthCheckPath: /_stcore/health
+    autoDeploy: true      # redeploy on every push to the default branch
+    envVars:
+      - key: ALPACA_PAPER
+        value: "true"
+      # Secrets — set the real values in the Render dashboard, never in git:
+      - key: ALPACA_API_KEY
+        sync: false
+      - key: ALPACA_SECRET_KEY
+        sync: false
+      # Optional automated trading (off unless you set it true in the dashboard):
+      - key: ALGO_AUTO_REBALANCE
+        value: "false"
+      - key: ALGO_STRATEGY
+        value: "balanced"

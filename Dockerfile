@@ -1,10 +1,16 @@
 # Algohns V12 — container image for the Streamlit dashboard.
+#
+# Pinned to Python 3.11 on purpose: Streamlit Cloud runs bleeding-edge Python
+# (3.14 at time of writing), whose pyarrow/Arrow type-inference path breaks on
+# object columns. This image sidesteps that entirely — and any container host
+# (Render, Railway, Fly.io, a VPS) uses THIS file, unlike Streamlit Cloud which
+# ignores it. Those hosts stay warm, so there is no cold start either.
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     STREAMLIT_SERVER_HEADLESS=true \
-    STREAMLIT_SERVER_PORT=8501
+    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 
 WORKDIR /app
 
@@ -19,7 +25,11 @@ RUN pip install -r requirements.txt \
 
 COPY . .
 
+# Managed hosts inject the port to bind on via $PORT; default to 8501 locally.
+ENV PORT=8501
 EXPOSE 8501
-HEALTHCHECK CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501/_stcore/health').status==200 else 1)" || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD python -c "import os,urllib.request,sys; p=os.getenv('PORT','8501'); sys.exit(0 if urllib.request.urlopen(f'http://localhost:{p}/_stcore/health').status==200 else 1)" || exit 1
 
-CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0"]
+# Shell form so ${PORT} expands. Bind 0.0.0.0 so the host proxy can reach it.
+CMD streamlit run app.py --server.address=0.0.0.0 --server.port=${PORT:-8501}
