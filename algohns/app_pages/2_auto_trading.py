@@ -6,6 +6,8 @@ applies/rebalances it on the Alpaca **paper (demo)** account.
 """
 from __future__ import annotations
 
+import traceback
+
 import pandas as pd
 import streamlit as st
 
@@ -19,6 +21,37 @@ from algohns.modules import risk_profile as rp_mod
 from algohns.modules import strategy_lab as sl
 from algohns import charts as ch
 from algohns.ui import code_panel, dependency_notice, header, paper_lock_banner
+
+
+def _show_alpaca_error(prefix: str, exc: Exception) -> None:
+    """Surface an Alpaca failure with its *type*, not just its message.
+
+    A bare ``str(exc)`` hides what actually broke — an auth failure, a network
+    error and a parsing bug all look different but read alike without the class
+    name. The type plus the full traceback (in an expander) is what makes a
+    remote problem diagnosable.
+    """
+    st.error(f"{prefix}: {type(exc).__name__}: {exc}")
+    if type(exc).__name__ == "APIError":
+        st.caption("Alpaca rejected the request. Most common causes: the Key ID "
+                   "and Secret are swapped, or these are **live** keys while the "
+                   "app is paper-only (generate keys with the *Paper* toggle on).")
+    with st.expander("Technical details (copy this if it needs reporting)"):
+        st.code("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+                language="text")
+
+
+def _safe_table(df: pd.DataFrame) -> None:
+    """Render a dataframe, falling back to a string table if Arrow can't encode it.
+
+    Streamlit serialises dataframes through pyarrow, which can choke on mixed
+    object columns; that must not take down the whole panel, so on any failure
+    we show a stringified table instead of raising.
+    """
+    try:
+        st.dataframe(df, width="stretch", hide_index=True)
+    except Exception:  # noqa: BLE001
+        st.table(df.astype(str))
 
 header(
     "Alpaca Auto-Trading & Risk Profiling",
@@ -146,10 +179,12 @@ with tabs[3]:
                 c[0].metric("Equity", f"${snap['equity']:,.2f}")
                 c[1].metric("Cash", f"${snap['cash']:,.2f}")
                 c[2].metric("Buying power", f"${snap['buying_power']:,.2f}")
-                st.dataframe(pd.DataFrame(snap["positions"]), width="stretch", hide_index=True) \
-                    if snap["positions"] else st.info("No open positions.")
+                if snap["positions"]:
+                    _safe_table(pd.DataFrame(snap["positions"]))
+                else:
+                    st.info("No open positions.")
             except Exception as exc:  # noqa: BLE001
-                st.error(f"Alpaca error: {exc}")
+                _show_alpaca_error("Alpaca error", exc)
 
     with sub[1]:
         profile = st.session_state.get("risk_profile")
@@ -163,10 +198,12 @@ with tabs[3]:
                          disabled=not settings.alpaca_configured):
                 try:
                     plan = engine.rebalance_to_weights(profile.ticker_allocation, dry_run=dry)
-                    st.dataframe(pd.DataFrame(plan), width="stretch", hide_index=True) \
-                        if plan else st.info("Already at target — no trades needed.")
+                    if plan:
+                        _safe_table(pd.DataFrame(plan))
+                    else:
+                        st.info("Already at target — no trades needed.")
                 except Exception as exc:  # noqa: BLE001
-                    st.error(f"Rebalance error: {exc}")
+                    _show_alpaca_error("Rebalance error", exc)
 
     with sub[2]:
         with st.form("order"):
@@ -184,13 +221,17 @@ with tabs[3]:
                              notional=notional or None, side=side, type=otype,
                              limit_price=limit_price or None)
         if preview:
-            st.json(engine.preview_order(ticket))
+            try:
+                st.json(engine.preview_order(ticket))
+            except Exception as exc:  # noqa: BLE001
+                _show_alpaca_error("Preview failed", exc)
         if execute and settings.alpaca_configured:
             try:
+                result = engine.submit_order(ticket)
                 st.success("Order submitted (paper).")
-                st.json(engine.submit_order(ticket))
+                st.json(result)
             except Exception as exc:  # noqa: BLE001
-                st.error(f"Order failed: {exc}")
+                _show_alpaca_error("Order failed", exc)
         k1, k2 = st.columns(2)
         if k1.button("🛑 Cancel all orders"):
             st.json(engine.cancel_all())
