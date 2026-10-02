@@ -5,6 +5,8 @@ Python dashboard feels continuous with the previous Cloudflare Worker UI.
 """
 from __future__ import annotations
 
+import urllib.parse
+
 import streamlit as st
 
 # Brand palette: black terminal with red/green accents.
@@ -14,9 +16,34 @@ GOLD = "#16C784"   # green (up / positive / primary accent)
 CYAN = "#EA3943"   # red (down / negative)
 GREEN = GOLD
 RED = CYAN
+GOLD_LEAF = "#D4AF37"   # metallic gold — the bull & bear motif
 MIDNIGHT = "#000000"
 SLATE = "#0E0F10"
 INK = "#F5F7F8"
+
+# Gold bull (horned head) + bear (round-eared head) silhouettes, tiled faintly
+# across the whole site as a dark-background watermark. Built as a URL-encoded
+# SVG data URI so it works as a plain CSS background layer on every page.
+_BULLBEAR_TILE = (
+    "<svg xmlns='http://www.w3.org/2000/svg' width='340' height='210' "
+    "viewBox='0 0 340 210'>"
+    f"<g fill='{GOLD_LEAF}' fill-opacity='0.065'>"
+    # --- bull head (horns up, tapering muzzle) ---
+    "<g transform='translate(26,54)'>"
+    "<path d='M50 30 C40 13 19 9 5 16 C18 20 31 27 35 41 C40 34 45 31 50 31 Z'/>"
+    "<path d='M50 30 C60 13 81 9 95 16 C82 20 69 27 65 41 C60 34 55 31 50 31 Z'/>"
+    "<ellipse cx='27' cy='45' rx='9' ry='5' transform='rotate(-20 27 45)'/>"
+    "<ellipse cx='73' cy='45' rx='9' ry='5' transform='rotate(20 73 45)'/>"
+    "<path d='M32 39 C38 34 62 34 68 39 C73 55 60 82 50 88 C40 82 27 55 32 39 Z'/>"
+    "</g>"
+    # --- bear head (round, small ears, snout) ---
+    "<g transform='translate(206,56)'>"
+    "<circle cx='27' cy='20' r='10'/><circle cx='73' cy='20' r='10'/>"
+    "<circle cx='50' cy='52' r='32'/><ellipse cx='50' cy='66' rx='13' ry='10'/>"
+    "</g>"
+    "</g></svg>"
+)
+_BULLBEAR_URI = urllib.parse.quote(_BULLBEAR_TILE, safe="")
 
 _CSS = f"""
 <style>
@@ -28,7 +55,14 @@ _CSS = f"""
     --midnight: {MIDNIGHT};
 }}
 .stApp {{
-    background: radial-gradient(1100px 560px at 18% -12%, #0a1a13 0%, {MIDNIGHT} 58%);
+    background-color: {MIDNIGHT};
+    background-image:
+        url("data:image/svg+xml,{_BULLBEAR_URI}"),
+        radial-gradient(1100px 560px at 18% -12%, #17120a 0%, {MIDNIGHT} 60%);
+    background-repeat: repeat, no-repeat;
+    background-size: 340px 210px, cover;
+    background-position: center top, center;
+    background-attachment: fixed, fixed;
 }}
 h1, h2, h3 {{ letter-spacing: .3px; color: {INK}; }}
 .algohns-badge {{
