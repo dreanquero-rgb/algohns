@@ -181,22 +181,47 @@ def _tradable_symbols() -> list[str]:
         return []
 
 
-# Paper Trading is first on purpose: once a strategy exists it is the thing you
-# come back to, so it is what you land on.
-tab_paper, tab_risk, tab_strat, tab_bt, tab_worker, tab_code = st.tabs([
-    "🤖 Paper Trading", "🧭 Risk Profile", "🔬 Strategy Lab",
-    "🧪 Profile Backtest", "🛠️ Worker", "🐍 Code",
+# Paper Trading is first (what you return to once a strategy exists); the
+# Strategy Lab is the heart (how the paper-trading algorithm is defined); the
+# Risk Profile is last — it only advises how to split by risk appetite.
+tab_paper, tab_strat, tab_bt, tab_code, tab_risk = st.tabs([
+    "🤖 Paper Trading", "🔬 Strategy Lab", "🧪 Strategy Backtest",
+    "🐍 Code", "🧭 Risk Profile",
 ])
+
+
+def _confirmed_strategy() -> dict[str, float] | None:
+    """The strategy currently driving paper trading (confirmed in Strategy Lab)."""
+    w = st.session_state.get("risk_profile_override")
+    return dict(w) if w else None
+
+
+def _risk_level(avg_beta: float | None, avg_vol: float | None) -> str:
+    """Coarse risk bucket from a screen's average beta / volatility."""
+    if avg_beta is not None:
+        if avg_beta < 0.90:
+            return "Conservative"
+        if avg_beta <= 1.15:
+            return "Balanced"
+        return "Aggressive"
+    if avg_vol is not None:
+        if avg_vol < 0.18:
+            return "Conservative"
+        if avg_vol <= 0.30:
+            return "Balanced"
+        return "Aggressive"
+    return "Custom"
 
 # =============================================================================
 # RISK QUESTIONNAIRE
 # =============================================================================
 with tab_risk:
-    st.subheader("Investor risk questionnaire")
+    st.subheader("Investor risk questionnaire — advisory only")
     st.caption(
-        "Fill this once — the answers are **saved to disk and reloaded on every "
-        "restart**, so you never re-answer unless you want to. Change anything "
-        "and recompute to update it.")
+        "This only **advises** how you might split your capital given your risk "
+        "appetite. It does not drive trading — the strategy you actually trade is "
+        "defined in the **Strategy Lab**. Filled once and saved to disk, so it "
+        "reloads on restart; change anything and recompute to update it.")
 
     saved_answers = st.session_state.get("saved_risk_answers", {})
     saved_prefs = st.session_state.get("saved_risk_prefs", [])
@@ -258,29 +283,41 @@ with tab_risk:
                         value_fmt="{:.1f}", suffix="%"),
                 width="stretch")
         st.dataframe(alloc_df, width="stretch", hide_index=True)
-        st.success("Profile saved — use it in the **Profile Backtest** and **Paper Trading** tabs.")
+        st.info("💡 This is a **suggestion** based on your risk appetite. To trade, "
+                "define and **confirm** your strategy in the **Strategy Lab**.")
+        if st.button("Use this suggestion as a starting point in the Strategy Lab"):
+            st.session_state["risk_suggestion"] = dict(profile.ticker_allocation)
+            st.success("Saved as a starting point — open the Strategy Lab.")
 
 # =============================================================================
 # INTEGRATED BACKTEST (separate from Module 3)
 # =============================================================================
 with tab_bt:
-    profile = st.session_state.get("risk_profile")
-    if not profile:
-        st.info("Compute your risk profile first (tab 1).")
+    st.subheader("Backtest the confirmed strategy")
+    weights = _confirmed_strategy()
+    if not weights:
+        st.info("No confirmed strategy yet. Build one in the **Strategy Lab** and "
+                "press **Confirm strategy** — then backtest it here.")
     else:
-        st.subheader(f"Backtest — {profile.label} allocation")
+        st.caption(f"Confirmed strategy · {len(weights)} holdings. "
+                   "This backtests the exact weights you will trade.")
+        st.json(weights)
         period = st.selectbox("History", ["1y", "3y", "5y", "10y"], index=2)
-        if st.button("Run integrated backtest", type="primary"):
+        if st.button("Run backtest on the confirmed strategy", type="primary"):
             md = get_market_data()
-            tickers = list(profile.ticker_allocation.keys())
             try:
                 with st.spinner("Downloading prices…"):
-                    prices = md.history(tickers, period=period)
+                    prices = md.history(list(weights), period=period)
                 if prices.empty:
-                    st.warning("No price data returned (network may be blocked here; works on deploy).")
+                    st.warning("No price data returned (network may be blocked here; "
+                               "works on deploy).")
                 else:
-                    weights = {t: w for t, w in profile.ticker_allocation.items() if t in prices.columns}
-                    res = Backtester(prices).run(weights, rebalance="Q")
+                    held = {t: w for t, w in weights.items() if t in prices.columns}
+                    missing = [t for t in weights if t not in prices.columns]
+                    if missing:
+                        st.warning("No price history for: " + ", ".join(missing)
+                                   + " — backtested on the rest.")
+                    res = Backtester(prices).run(held, rebalance="Q")
                     m = res.metrics.as_dict()
                     k = st.columns(4)
                     k[0].metric("CAGR", f"{m['cagr']*100:.2f}%")
@@ -289,7 +326,7 @@ with tab_bt:
                     k[3].metric("Volatility", f"{m['annual_volatility']*100:.2f}%")
                     st.plotly_chart(
                         ch.line(res.equity_curve.rename("Portfolio").to_frame(),
-                                title=f"Equity curve — {profile.label} allocation"),
+                                title="Equity curve — confirmed strategy"),
                         width="stretch")
                     st.plotly_chart(
                         ch.area(res.drawdown_curve.rename("Drawdown"),
@@ -445,28 +482,37 @@ with tab_paper:
 
         if do_preview or do_send:
             try:
+                # On a real send, read the account's open orders first so an
+                # identical order that is still working is not placed again.
+                open_keys = engine.open_order_keys() if do_send else None
                 plan = engine.rebalance_to_weights(
                     weights, dry_run=not do_send,
                     close_untracked=close_untracked,
-                    tradable=tradable or None)
+                    tradable=tradable or None,
+                    open_keys=open_keys)
                 if not plan:
                     st.info("Already at target — no trades needed.")
                 else:
                     _safe_table(pd.DataFrame(plan))
                     if do_send:
                         sent = [p for p in plan if p.get("status") == "sent"]
+                        dup = [p for p in plan if p.get("status") == "duplicate"]
                         failed = [p for p in plan
                                   if p.get("status") in ("error", "skipped")]
                         if sent:
                             st.success(
                                 f"✅ {len(sent)} order(s) sent to the Alpaca paper "
                                 "account. Open the **Journal** tab to watch them fill.")
+                        if dup:
+                            st.info(
+                                f"↪️ {len(dup)} order(s) skipped as duplicates "
+                                "(an identical order is already open).")
                         if failed:
                             st.warning(
                                 f"⚠️ {len(failed)} order(s) not sent (untradable or "
                                 "rejected) — the rest still went through. See the "
                                 "`status`/`error` columns above.")
-                        if not sent and not failed:
+                        if not (sent or dup or failed):
                             st.info("No orders were sent.")
                     else:
                         st.caption("Nothing was sent — press **Send orders** to "
@@ -496,9 +542,18 @@ with tab_paper:
                 _show_alpaca_error("Preview failed", exc)
         if execute and settings.alpaca_configured:
             try:
-                result = engine.submit_order(ticket)
-                st.success("Order submitted (paper).")
-                _safe_json(result)
+                # Refuse an identical order while one is already open, and send a
+                # time-bucketed client_order_id so a double-click can't double-send.
+                if (ticket.symbol, ticket.side) in engine.open_order_keys():
+                    st.warning(f"↪️ An open {ticket.side} order for {ticket.symbol} "
+                               "already exists — not sending a duplicate. Cancel it "
+                               "or wait for it to fill.")
+                else:
+                    import time as _t
+                    coid = f"algohns-{ticket.symbol}-{ticket.side}-{int(_t.time()//60)}"
+                    result = engine.submit_order(ticket, client_order_id=coid)
+                    st.success("Order submitted (paper).")
+                    _safe_json(result)
             except Exception as exc:  # noqa: BLE001
                 _show_alpaca_error("Order failed", exc)
         k1, k2 = st.columns(2)
@@ -525,25 +580,7 @@ with tab_paper:
                 _show_alpaca_error("Journal error", exc)
 
 # =============================================================================
-# WORKER
-# =============================================================================
-with tab_worker:
-    st.markdown(
-        "Background execution so the strategy keeps running with the browser closed:\n\n"
-        "```bash\n"
-        "celery -A algohns.workers.celery_app.app worker --loglevel=info\n"
-        "celery -A algohns.workers.celery_app.app beat   --loglevel=info\n"
-        "```\n"
-        "Broker-less alternative (laptop):\n"
-        "```python\n"
-        "from algohns.workers.tasks import InlineScheduler\n"
-        "InlineScheduler().start(sync_interval_seconds=300)\n"
-        "```"
-    )
-    st.caption(f"Broker: {settings.celery_broker} · Backend: {settings.celery_backend}")
-
-# =============================================================================
-# TAB 2 — STRATEGY LAB  (rules -> screened universe -> weights -> Python)
+# STRATEGY LAB  (rules -> screened universe -> weights -> Python)
 # =============================================================================
 @st.fragment
 def strategy_lab_panel() -> None:
@@ -653,15 +690,18 @@ def strategy_lab_panel() -> None:
             picks = screen_src.iloc[0:0]
 
         st.markdown("**3 · The screen**")
+        avg_beta = avg_vol = None
+        if not picks.empty and "beta" in picks.columns:
+            avg_beta = float(pd.to_numeric(picks["beta"], errors="coerce").mean())
+        if not picks.empty and "volatility" in picks.columns:
+            avg_vol = float(pd.to_numeric(picks["volatility"], errors="coerce").mean())
+        risk_level = _risk_level(avg_beta, avg_vol)
         k = st.columns(4)
         k[0].metric("Universe", f"{len(universe):,}")
         k[1].metric("Passing the screen", f"{len(picks):,}")
-        if not picks.empty and "beta" in picks.columns:
-            k[2].metric("Avg beta",
-                        f"{pd.to_numeric(picks['beta'], errors='coerce').mean():.2f}")
-        if not picks.empty and "volatility" in picks.columns:
-            k[3].metric("Avg volatility",
-                        f"{pd.to_numeric(picks['volatility'], errors='coerce').mean():.1%}")
+        if avg_beta is not None:
+            k[2].metric("Avg beta", f"{avg_beta:.2f}")
+        k[3].metric("Risk level", risk_level)
 
         if picks.empty:
             st.info("No instrument satisfies these rules — loosen a constraint.")
@@ -709,6 +749,14 @@ def strategy_lab_panel() -> None:
             st.markdown("**4 · Rules in force**")
             st.markdown("\n".join(f"- {r}" for r in criteria.describe()))
 
+            # Signal when the risk level of what you are about to confirm differs
+            # from the last confirmed strategy (e.g. Conservative → Aggressive).
+            prev_level = st.session_state.get("confirmed_risk_level")
+            if prev_level and risk_level != "Custom" and risk_level != prev_level:
+                st.warning(f"⚠️ **Risk shift:** this screen is **{risk_level}**, but "
+                           f"your confirmed strategy was **{prev_level}**. Confirming "
+                           "will change the risk level of what you trade.")
+
             profile = st.session_state.get("risk_profile")
             code = sl.generate_strategy_code(
                 criteria, weighting, rebalance_sl,
@@ -722,12 +770,32 @@ def strategy_lab_panel() -> None:
                                    file_name="algohns_strategy.py",
                                    mime="text/x-python")
 
-            if st.button("Set as active strategy (→ Paper Trading)", type="primary"):
+            if st.button("✅ Confirm strategy (→ Paper Trading & Backtest)",
+                         type="primary"):
                 _persist_strategy(weights)
-                st.success(f"{len(weights)} target weights are now the **active "
-                           "strategy** (saved — it reloads after a restart). "
-                           "Apply it in the Paper Trading tab.")
-                st.rerun()   # full-app rerun so Paper Trading sees the handoff
+                st.session_state["confirmed_risk_level"] = risk_level
+                st.session_state["strategy_confirmed"] = True
+                save_state("strategy_meta", {"risk_level": risk_level,
+                                             "n": len(weights)})
+                st.success(f"✅ Confirmed — {len(weights)} holdings (**{risk_level}**). "
+                           "This is now the strategy you trade and backtest "
+                           "(saved across restarts).")
+                st.rerun()   # full-app rerun so the other tabs see the handoff
+
+            with st.expander("🤖 Automate — trade this strategy daily"):
+                st.caption(
+                    "After confirming, a background worker can rebalance the paper "
+                    "account to this strategy every weekday. It needs a running "
+                    "process (it does not run while only the browser is open):")
+                st.code(
+                    "ALGO_AUTO_REBALANCE=true \\\n"
+                    "celery -A algohns.workers.celery_app.app beat --loglevel=info\n"
+                    "# in a second shell:\n"
+                    "celery -A algohns.workers.celery_app.app worker --loglevel=info",
+                    language="bash")
+                st.caption("The worker rebalances to the **confirmed strategy** "
+                           "(saved above) on the schedule in ALGO_REBALANCE_CRON, "
+                           "and self-gates on the market clock.")
 
             st.divider()
             st.markdown("**5 · Edit & run the strategy yourself**")
@@ -777,10 +845,11 @@ def strategy_lab_panel() -> None:
                 filename="algohns_strategy_live.py",
             )
             if st.session_state.get("strategy_code_weights"):
-                if st.button("Set edited-code weights as active strategy"):
+                if st.button("✅ Confirm edited-code weights as the strategy"):
                     _persist_strategy(st.session_state["strategy_code_weights"])
-                    st.success("Edited-code weights are now the **active strategy** "
-                               "(saved). Apply it in the Paper Trading tab.")
+                    st.session_state["strategy_confirmed"] = True
+                    st.success("Edited-code weights are now the **confirmed "
+                               "strategy** (saved). Trade it in Paper Trading.")
                     st.rerun()
 
 
@@ -789,14 +858,70 @@ with tab_strat:
 
 
 # =============================================================================
-# CODE  (the engine, pulled live from source)
+# CODE  (editable auto-trading algorithm + read-only engine source)
 # =============================================================================
 with tab_code:
-    st.subheader("Engine source")
+    st.subheader("Edit & update the auto-trading algorithm")
     st.caption(
-        "Everything the auto-trader runs, pulled live with `inspect` so the code "
-        "shown is the code that executed. Execution is Alpaca **paper** only — "
-        "real-money trading is locked platform-wide."
+        "This is the algorithm the auto-trader applies: a `select(universe)` that "
+        "returns target weights. Edit it, press **Update algorithm** to run it and "
+        "make its output the confirmed strategy the paper account trades.")
+
+    _algo_seed = (
+        "# `universe` (the tradable US equity DataFrame), screen_universe,\n"
+        "# build_weights, ScreenCriteria and pd / np are available — no imports.\n"
+        "# Define select(universe) -> {ticker: weight}; it is called on Update.\n\n"
+        "def select(universe):\n"
+        "    criteria = ScreenCriteria(max_positions=15)\n"
+        "    picks = screen_universe(universe, criteria)\n"
+        "    return build_weights(picks, 'equal')\n\n"
+        "weights = select(universe)\n"
+        "print(f'{len(weights)} holdings selected')\n"
+    )
+
+    def _algo_ctx():
+        return {
+            "universe": _full_universe(),
+            "screen_universe": sl.screen_universe,
+            "build_weights": sl.build_weights,
+            "ScreenCriteria": sl.ScreenCriteria,
+            "WEIGHTINGS": sl.WEIGHTINGS,
+            "pd": pd, "np": np,
+        }
+
+    def _render_algo(result):
+        if not isinstance(result, dict) or not result:
+            st.warning("The algorithm must set `weights` to a non-empty "
+                       "{ticker: weight} dict.")
+            return
+        clean = {str(k): float(v) for k, v in result.items()}
+        st.session_state["algo_code_weights"] = clean
+        wser = pd.Series(clean, dtype=float).sort_values(ascending=False).head(25)
+        st.plotly_chart(
+            ch.hbar(wser.index, wser.values * 100, title="Algorithm output",
+                    height=320, value_fmt="{:.1f}", suffix="%"),
+            width="stretch")
+
+    code_editor(
+        _algo_seed, _algo_ctx, result_var="weights", render_result=_render_algo,
+        key="autotrader_algo", title="Auto-trading algorithm",
+        intro="Runs the same platform functions the engine uses. Run it to preview, "
+              "then press Update to make it the confirmed strategy.",
+        filename="algohns_autotrader_algo.py",
+    )
+    if st.session_state.get("algo_code_weights"):
+        if st.button("🔄 Update algorithm (→ confirmed strategy)", type="primary"):
+            _persist_strategy(st.session_state["algo_code_weights"])
+            st.session_state["strategy_confirmed"] = True
+            st.success("Algorithm updated — its output is now the confirmed "
+                       "strategy the paper account trades.")
+            st.rerun()
+
+    st.divider()
+    st.subheader("Engine source (read-only)")
+    st.caption(
+        "Everything the auto-trader runs, pulled live with `inspect`. Execution is "
+        "Alpaca **paper** only — real-money trading is locked platform-wide."
     )
     code_panel(
         [("Strategy lab", sl),
@@ -805,5 +930,5 @@ with tab_code:
         title="Auto-trading engine — full source",
         intro="Screening and weighting rules, the risk questionnaire, and the "
               "Alpaca execution façade with its paper-trading lock.",
-        expanded=True, filename="algohns_autotrader.py",
+        expanded=False, filename="algohns_autotrader.py",
     )

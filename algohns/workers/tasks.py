@@ -7,9 +7,11 @@ broker — enough to keep a paper strategy running with the browser closed.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from ..config import get_settings
+from ..core.persistence import load_state
 from ..core.utils import is_available, lazy_import
 from ..modules.alpaca_execution import AlpacaExecutionEngine, OrderTicket
 from .celery_app import app
@@ -74,16 +76,26 @@ def _scheduled_rebalance(engine: AlpacaExecutionEngine | None = None) -> dict[st
         return {"status": "skipped", "reason": "market closed",
                 "next_open": clock.get("next_open")}
 
+    # The confirmed Strategy Lab strategy (saved to disk) wins: the daily worker
+    # trades what you built and confirmed in the app. Only if none is saved does
+    # it fall back to the env-configured preset / JSON allocation.
     try:
-        weights = resolve_target_weights(settings.strategy_preset,
-                                         settings.target_weights_json)
+        saved = load_state("active_strategy")
+        if saved and isinstance(saved.get("weights"), dict) and saved["weights"]:
+            weights = resolve_target_weights(weights_json=json.dumps(saved["weights"]))
+            strategy_label = "strategy-lab (confirmed)"
+        else:
+            weights = resolve_target_weights(settings.strategy_preset,
+                                             settings.target_weights_json)
+            strategy_label = (settings.strategy_preset
+                              if not settings.target_weights_json else "custom")
     except StrategyError as exc:
         return {"status": "error", "reason": str(exc)}
 
     plan = engine.rebalance_to_weights(weights, dry_run=False)
     return {
         "status": "ok",
-        "strategy": settings.strategy_preset if not settings.target_weights_json else "custom",
+        "strategy": strategy_label,
         "target": weights,
         "orders": plan,
         "n_orders": len(plan),

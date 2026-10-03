@@ -88,6 +88,10 @@ def _settings(**over):
 
 @pytest.fixture
 def patched_settings(monkeypatch):
+    # No confirmed strategy on disk by default, so these tests exercise the
+    # env-config path deterministically regardless of local cache state.
+    monkeypatch.setattr(tasks, "load_state", lambda name: None)
+
     def _apply(**over):
         monkeypatch.setattr(tasks, "get_settings", lambda: _settings(**over))
     return _apply
@@ -140,6 +144,17 @@ class TestScheduledRebalanceGates:
         out = tasks._scheduled_rebalance(engine=eng)
         assert eng.rebalanced_with == {"QQQ": 0.5, "TLT": 0.5}
         assert out["strategy"] == "custom"
+
+    def test_confirmed_strategy_lab_strategy_wins(self, patched_settings, monkeypatch):
+        """A strategy confirmed in the app (saved to disk) is what the worker trades."""
+        patched_settings(auto_rebalance=True, strategy_preset="balanced")
+        monkeypatch.setattr(tasks, "load_state",
+                            lambda name: {"weights": {"NVDA": 0.5, "MSFT": 0.5}}
+                            if name == "active_strategy" else None)
+        eng = _StubEngine(configured=True, is_open=True)
+        out = tasks._scheduled_rebalance(engine=eng)
+        assert eng.rebalanced_with == {"NVDA": 0.5, "MSFT": 0.5}
+        assert out["strategy"] == "strategy-lab (confirmed)"
 
 
 class TestModuleWiring:
