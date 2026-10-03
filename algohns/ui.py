@@ -21,25 +21,31 @@ MIDNIGHT = "#000000"
 SLATE = "#0E0F10"
 INK = "#F5F7F8"
 
-# Gold bull (horned head) + bear (round-eared head) silhouettes, tiled faintly
-# across the whole site as a dark-background watermark. Built as a URL-encoded
-# SVG data URI so it works as a plain CSS background layer on every page.
+# Elegant gold line-art bull (horned head) + bear (round-eared head), tiled
+# faintly across the whole site as a dark-background watermark. Line-art reads
+# as a premium emblem rather than a solid blob. URL-encoded SVG data URI so it
+# works as a plain CSS background layer on every page.
 _BULLBEAR_TILE = (
-    "<svg xmlns='http://www.w3.org/2000/svg' width='340' height='210' "
-    "viewBox='0 0 340 210'>"
-    f"<g fill='{GOLD_LEAF}' fill-opacity='0.065'>"
-    # --- bull head (horns up, tapering muzzle) ---
-    "<g transform='translate(26,54)'>"
-    "<path d='M50 30 C40 13 19 9 5 16 C18 20 31 27 35 41 C40 34 45 31 50 31 Z'/>"
-    "<path d='M50 30 C60 13 81 9 95 16 C82 20 69 27 65 41 C60 34 55 31 50 31 Z'/>"
-    "<ellipse cx='27' cy='45' rx='9' ry='5' transform='rotate(-20 27 45)'/>"
-    "<ellipse cx='73' cy='45' rx='9' ry='5' transform='rotate(20 73 45)'/>"
-    "<path d='M32 39 C38 34 62 34 68 39 C73 55 60 82 50 88 C40 82 27 55 32 39 Z'/>"
+    "<svg xmlns='http://www.w3.org/2000/svg' width='440' height='300' "
+    "viewBox='0 0 440 300'>"
+    f"<g fill='none' stroke='{GOLD_LEAF}' stroke-width='5' stroke-linecap='round' "
+    "stroke-linejoin='round' opacity='0.08'>"
+    # --- bull head (horns up, eyes, muzzle) ---
+    "<g transform='translate(34,26)'>"
+    "<path d='M60 40 C44 16 14 10 2 26 C 18 30 34 40 40 58'/>"
+    "<path d='M60 40 C76 16 106 10 118 26 C 102 30 86 40 80 58'/>"
+    "<path d='M40 54 C40 50 80 50 80 54 C 86 74 72 104 60 112 C 48 104 34 74 40 54 Z'/>"
+    f"<circle cx='50' cy='70' r='3.2' fill='{GOLD_LEAF}' stroke='none'/>"
+    f"<circle cx='70' cy='70' r='3.2' fill='{GOLD_LEAF}' stroke='none'/>"
+    "<path d='M54 92 C57 95 63 95 66 92'/>"
     "</g>"
     # --- bear head (round, small ears, snout) ---
-    "<g transform='translate(206,56)'>"
-    "<circle cx='27' cy='20' r='10'/><circle cx='73' cy='20' r='10'/>"
-    "<circle cx='50' cy='52' r='32'/><ellipse cx='50' cy='66' rx='13' ry='10'/>"
+    "<g transform='translate(250,150)'>"
+    "<circle cx='30' cy='28' r='13'/><circle cx='90' cy='28' r='13'/>"
+    "<path d='M60 20 C92 20 104 46 104 64 C104 92 86 110 60 110 "
+    "C34 110 16 92 16 64 C16 46 28 20 60 20 Z'/>"
+    "<ellipse cx='60' cy='82' rx='16' ry='12'/>"
+    f"<circle cx='60' cy='76' r='3.4' fill='{GOLD_LEAF}' stroke='none'/>"
     "</g>"
     "</g></svg>"
 )
@@ -60,7 +66,7 @@ _CSS = f"""
         url("data:image/svg+xml,{_BULLBEAR_URI}"),
         radial-gradient(1100px 560px at 18% -12%, #17120a 0%, {MIDNIGHT} 60%);
     background-repeat: repeat, no-repeat;
-    background-size: 340px 210px, cover;
+    background-size: 300px 205px, cover;
     background-position: center top, center;
     background-attachment: fixed, fixed;
 }}
