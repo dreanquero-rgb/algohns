@@ -109,6 +109,21 @@ with tab_universe:
     universe_explorer_panel()
 
 with tab_backtest:
+    # Easier than typing tickers: pull them from the confirmed Strategy Lab
+    # strategy or the Universe Explorer selection (both land in session_state).
+    imp = st.columns([2, 2, 3])
+    strat_w = st.session_state.get("risk_profile_override")
+    if imp[0].button("⬇️ Import confirmed strategy",
+                     disabled=not strat_w,
+                     help="Fill the universe from the strategy you confirmed in "
+                          "Alpaca Auto-Trading → Strategy Lab."):
+        st.session_state["bt_tickers"] = " ".join(sorted(strat_w))
+        st.rerun()
+    if imp[1].button("⬇️ Import Universe Explorer selection",
+                     disabled=not st.session_state.get("bt_tickers"),
+                     help="Use the tickers you sent from the Universe Explorer tab."):
+        st.rerun()
+
     default_tickers = st.session_state.get("bt_tickers", "AAPL MSFT NVDA AMZN GOOGL JPM XOM")
     c1, c2, c3 = st.columns([2, 1, 1])
     tickers = c1.text_input("Universe (space/comma separated)", value=default_tickers)
@@ -145,9 +160,18 @@ with tab_backtest:
         try:
             with st.spinner("Downloading prices…"):
                 prices = md.history(tickers, period=period, source=src, start=start)
+            # Flag tickers that returned no data, but keep going with the rest.
+            requested = [t.strip().upper() for t in tickers.replace(",", " ").split()
+                         if t.strip()]
+            found = {str(c).upper() for c in prices.columns}
+            missing = [t for t in requested if t not in found]
+            if missing:
+                st.warning("No price data for: " + ", ".join(missing)
+                           + " — backtesting on the remaining "
+                           f"{len(found)} ticker(s).")
             if prices.empty or prices.shape[1] < 2:
-                st.error("Not enough price data (check tickers; the network may be blocked "
-                         "here — this works on deploy).")
+                st.error("Not enough price data to backtest (need at least 2 valid "
+                         "tickers; the network may be blocked here — works on deploy).")
                 st.stop()
             optimizer = PortfolioOptimizer(prices)
             weights = optimizer.optimize(method)
