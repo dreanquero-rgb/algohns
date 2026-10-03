@@ -20,11 +20,13 @@ def _engine(snapshot):
     eng.submitted: list[OrderTicket] = []
     eng.portfolio_snapshot = lambda: eng._snap  # type: ignore[method-assign]
 
-    def _submit(ticket: OrderTicket):
+    def _submit(ticket: OrderTicket, client_order_id=None):
         eng.submitted.append(ticket)
+        eng.client_order_ids.append(client_order_id)
         return {"id": f"oid-{len(eng.submitted)}", "status": "accepted",
                 "symbol": ticket.symbol}
 
+    eng.client_order_ids: list = []
     eng.submit_order = _submit  # type: ignore[method-assign]
     return eng
 
@@ -100,7 +102,7 @@ class TestRebalancePlanner:
         """A symbol Alpaca rejects must not stop the other orders."""
         eng = _engine(_snap())
 
-        def _submit(ticket: OrderTicket):
+        def _submit(ticket: OrderTicket, client_order_id=None):
             if ticket.symbol == "BADX":
                 raise RuntimeError('asset "BADX" not found')
             eng.submitted.append(ticket)
@@ -115,6 +117,20 @@ class TestRebalancePlanner:
         assert status["BADX"] == "error"
         bad = next(p for p in plan if p["symbol"] == "BADX")
         assert "not found" in bad["error"]
+
+    def test_open_order_blocks_duplicate(self):
+        """A symbol/side with an order still open must not be re-sent."""
+        eng = _engine(_snap())
+        plan = eng.rebalance_to_weights(
+            {"SPY": 1.0}, dry_run=False, open_keys={("SPY", "buy")})
+        assert eng.submitted == []                       # nothing sent
+        assert plan[0]["status"] == "duplicate"
+
+    def test_client_order_id_is_set_on_submit(self):
+        eng = _engine(_snap())
+        eng.rebalance_to_weights({"SPY": 1.0}, dry_run=False)
+        assert eng.client_order_ids and eng.client_order_ids[0]
+        assert eng.client_order_ids[0].startswith("algohns-SPY-buy-")
 
     def test_tradable_filter_skips_untradable_without_submitting(self):
         eng = _engine(_snap())

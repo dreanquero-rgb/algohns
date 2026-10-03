@@ -11,6 +11,7 @@ construct a non-paper client.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -188,7 +189,24 @@ class AlpacaExecutionEngine:
         }
 
     # --------------------------------------------------------------- orders
-    def submit_order(self, ticket: OrderTicket) -> dict[str, Any]:
+    def open_order_keys(self) -> set[tuple[str, str]]:
+        """(symbol, side) of every order still open (not filled/cancelled).
+
+        Used to avoid re-sending the *same* order while an identical one is
+        still working — a duplicate buy/sell on a security whose order has not
+        completed yet.
+        """
+        keys: set[tuple[str, str]] = set()
+        for o in self.list_orders(status="open", limit=200):
+            sym = str(o.get("symbol") or "").upper()
+            side = str(o.get("side") or "").lower()
+            side = "buy" if "buy" in side else "sell" if "sell" in side else side
+            if sym:
+                keys.add((sym, side))
+        return keys
+
+    def submit_order(self, ticket: OrderTicket,
+                     client_order_id: str | None = None) -> dict[str, Any]:
         requests = require(_requests)
         enums = require(_enums)
 
@@ -199,25 +217,16 @@ class AlpacaExecutionEngine:
             "ioc": enums.TimeInForce.IOC,
         }[ticket.time_in_force]
 
+        common = dict(symbol=ticket.symbol, qty=ticket.qty, notional=ticket.notional,
+                      side=side, time_in_force=tif)
+        if client_order_id:
+            common["client_order_id"] = client_order_id
         if ticket.type == "limit":
             if ticket.limit_price is None:
                 raise ValueError("limit order requires limit_price")
-            req = requests.LimitOrderRequest(
-                symbol=ticket.symbol,
-                qty=ticket.qty,
-                notional=ticket.notional,
-                side=side,
-                time_in_force=tif,
-                limit_price=ticket.limit_price,
-            )
+            req = requests.LimitOrderRequest(limit_price=ticket.limit_price, **common)
         else:
-            req = requests.MarketOrderRequest(
-                symbol=ticket.symbol,
-                qty=ticket.qty,
-                notional=ticket.notional,
-                side=side,
-                time_in_force=tif,
-            )
+            req = requests.MarketOrderRequest(**common)
         return _to_dict(self.client.submit_order(req))
 
     def preview_order(self, ticket: OrderTicket) -> dict[str, Any]:
@@ -259,6 +268,7 @@ class AlpacaExecutionEngine:
         dry_run: bool = True,
         close_untracked: bool = False,
         tradable: set[str] | None = None,
+        open_keys: set[tuple[str, str]] | None = None,
     ) -> list[dict[str, Any]]:
         """Generate (and optionally submit) orders to reach target weights.
 
@@ -288,18 +298,32 @@ class AlpacaExecutionEngine:
                     for p in snap["positions"]}
         threshold = max(1.0, 0.001 * equity)
         plan: list[dict[str, Any]] = []
+        # 1-minute idempotency window: an identical order re-submitted within the
+        # same minute reuses this client_order_id, which Alpaca rejects as a
+        # duplicate — so a double-click cannot place the same order twice.
+        bucket = int(time.time() // 60)
 
         def _execute(entry: dict[str, Any], ticket: OrderTicket) -> None:
+            key = (ticket.symbol, ticket.side)
             if tradable is not None and ticket.symbol not in tradable:
                 entry["status"] = "skipped"
                 entry["error"] = "not tradable on Alpaca (US equities only)"
+            elif open_keys is not None and key in open_keys:
+                entry["status"] = "duplicate"
+                entry["error"] = "an open order for this symbol/side already exists"
             elif not dry_run:
+                coid = f"algohns-{ticket.symbol}-{ticket.side}-{bucket}"
                 try:
-                    entry["result"] = self.submit_order(ticket)
+                    entry["result"] = self.submit_order(ticket, client_order_id=coid)
                     entry["status"] = "sent"
+                    if open_keys is not None:
+                        open_keys.add(key)  # block a duplicate later in this batch
                 except Exception as exc:  # noqa: BLE001 - one failure ≠ abort
-                    entry["status"] = "error"
-                    entry["error"] = f"{type(exc).__name__}: {exc}"
+                    msg = f"{type(exc).__name__}: {exc}"
+                    low = msg.lower()
+                    dup = "client_order_id" in low or "duplicate" in low or "40010001" in msg
+                    entry["status"] = "duplicate" if dup else "error"
+                    entry["error"] = msg
             plan.append(entry)
 
         # 1) Move the target symbols toward their target notional.
