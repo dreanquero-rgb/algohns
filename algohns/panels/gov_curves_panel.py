@@ -49,25 +49,25 @@ def render() -> None:
         "nearest two bonds.")
 
     ctrl = st.columns([1, 1, 1])
+    # Live is OFF by default so the tab always loads instantly from committed
+    # real snapshots (the Italian curve is bundled). Turning live on adds the
+    # multi-country FRED data; if that fetch fails it silently keeps the
+    # snapshots, so the tab can never end up showing nothing.
     allow_live = ctrl[0].toggle(
-        "Fetch live data", value=True, key="gcv_live",
-        help="Live multi-country yields come from FRED (keyless, no rate cap). "
-             "Where the network is blocked the page falls back to committed real "
-             "snapshots and says so.")
+        "Fetch live multi-country data (FRED)", value=False, key="gcv_live",
+        help="Off: instant, committed real snapshots. On: also pulls live 10y "
+             "benchmarks and the US curve from FRED (slower, needs network).")
     settlement = ctrl[1].date_input("Settlement", value=date.today(),
                                     key="gcv_settle")
-    if ctrl[2].button("📥 Load / refresh curves", key="gcv_load"):
-        st.session_state["gcv_loaded"] = True
+    if ctrl[2].button("↻ Refresh", key="gcv_load"):
         _structures.clear()
         _history.clear()
 
-    if not st.session_state.get("gcv_loaded"):
-        st.info("Press **Load / refresh curves** to fit the global term "
-                "structures (kept out of the screener's load path so it stays "
-                "fast).")
-        return
-
-    packed, notes = _structures(allow_live, settlement.isoformat())
+    try:
+        packed, notes = _structures(allow_live, settlement.isoformat())
+    except Exception as exc:  # noqa: BLE001 - never let a live failure blank the tab
+        packed, notes = _structures(False, settlement.isoformat())
+        notes = list(notes) + [f"Live fetch failed, showing snapshots ({exc})"]
     curves = [_as_curve(d) for d in packed]
 
     sub = st.tabs(["📐 Term structures", "🕰️ Benchmark history",
