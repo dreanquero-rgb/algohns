@@ -532,6 +532,38 @@ def tax_profile_options() -> dict[str, str]:
 
 DEFAULT_MAX_YEARS = 30.0
 
+# Italian *sovereign* series (Republic of Italy). Municipal bonds (Città di
+# Torino, Comune di Foggia …), corporates and foreign govvies (Bund/OAT/Bonos)
+# are not these, so an allow-list on the series prefix keeps only state paper.
+_SOVEREIGN_RE = re.compile(
+    r"^\s*(BTP|BTPS|BOT|BOTS|CCT|CCTS|CCTEU|CCT-EU|CTZ)\b", re.IGNORECASE
+)
+_SOVEREIGN_CONTAINS = ("REPUBBLICA ITALIANA", "BTP ITALIA", "BTP EUR",
+                       "ITALY GOVT", "BUONI DEL TESORO", "BUONI ORDINARI DEL TESORO")
+
+
+def is_italian_sovereign(name: str | None, isin: str | None = None) -> bool:
+    """True only for Republic-of-Italy sovereign series (BTP/BOT/CCT/CTZ…).
+
+    Positive allow-list so municipal issuers (Torino, Foggia), corporates and
+    foreign sovereigns are all excluded, whatever source they came from.
+    """
+    n = (name or "").upper().strip()
+    if not n:
+        return False
+    if _SOVEREIGN_RE.match(n):
+        return True
+    return any(k in n for k in _SOVEREIGN_CONTAINS)
+
+
+def italian_sovereigns_only(df: "pd.DataFrame") -> "pd.DataFrame":
+    """Keep only Italian state bonds (drops municipals, corporates, foreign)."""
+    if df.empty or "Name" not in df.columns:
+        return df.copy()
+    isin = df["ISIN"] if "ISIN" in df.columns else pd.Series([None] * len(df), index=df.index)
+    mask = [is_italian_sovereign(n, i) for n, i in zip(df["Name"], isin)]
+    return df[pd.Series(mask, index=df.index)].copy()
+
 
 def screener_year_bounds(df: "pd.DataFrame", fallback: float = DEFAULT_MAX_YEARS) -> float:
     """Upper bound for the years-to-maturity slider.

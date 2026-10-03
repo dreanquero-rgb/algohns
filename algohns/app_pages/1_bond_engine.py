@@ -13,6 +13,7 @@ from algohns.modules.bond_data import (
     MOT_LISTS,
     BondScreener,
     filter_screener,
+    italian_sovereigns_only,
     screener_year_bounds,
     tax_profile_options,
 )
@@ -94,11 +95,17 @@ with tab_screener:
     except Exception as exc:  # noqa: BLE001
         dependency_notice(exc); st.stop()
 
+    # Keep only Italian state bonds by default — municipals (Torino, Foggia),
+    # corporates and foreign govvies are not what this screener is about.
+    sov_only = st.checkbox(
+        "Italian sovereigns only (BTP/BOT/CCT/CTZ)", value=True,
+        help="Drops municipal issuers (Città di Torino, Comune di Foggia …), "
+             "corporates and foreign government bonds.")
+    if sov_only:
+        df = italian_sovereigns_only(df)
+
     if source_status.startswith("live:"):
-        st.success(
-            f"🟢 Live data from {SOURCE_LABELS.get(source, source)} — "
-            f"{len(df)} instruments."
-        )
+        st.success(f"🟢 Live data — {len(df)} instruments.")
     elif source == "csv":
         st.success(f"🟢 CSV imported — {len(df)} instruments.")
     else:
@@ -164,14 +171,14 @@ with tab_screener:
         "Price": st.column_config.NumberColumn(format="%.2f"),
         "ModDur": st.column_config.NumberColumn("Mod.Dur", format="%.2f"),
         "Years": st.column_config.NumberColumn(format="%.1f"),
-        # LSEG cross-check columns (present only for the LSEG source).
-        "LSEG Yld%": st.column_config.NumberColumn("LSEG Yld", format="%.3f%%"),
-        "LSEG ModDur": st.column_config.NumberColumn("LSEG Mod.Dur", format="%.2f"),
+        # Reference cross-check columns (present only for the bundled source).
+        "LSEG Yld%": st.column_config.NumberColumn("Ref Yld", format="%.3f%%"),
+        "LSEG ModDur": st.column_config.NumberColumn("Ref Mod.Dur", format="%.2f"),
         "G-Spread": st.column_config.NumberColumn("G-Spread", format="%.1f bps"),
         "YTMΔ(bps)": st.column_config.NumberColumn(
-            "YTMΔ vs LSEG", format="%.1f bps",
-            help="Our ICMA gross YTM minus LSEG's bid yield, in bps. "
-                 "Near zero = the engine agrees with LSEG."),
+            "YTMΔ vs ref", format="%.1f bps",
+            help="Our ICMA gross YTM minus the reference bid yield, in bps. "
+                 "Near zero = the engine agrees with the reference."),
     }
     # Sort defensively: a live feed with no priced bonds yields no yield column.
     table = (view.sort_values("NetYTM%", ascending=False, na_position="last")
@@ -185,10 +192,9 @@ with tab_screener:
         qd = view["QuoteDate"].dropna() if "QuoteDate" in view.columns else None
         asof = f" · quotes to {qd.max()}" if qd is not None and not qd.empty else ""
         st.caption(
-            "📉 Real LSEG snapshot of Italian sovereign comparables"
-            f"{asof}. The **YTMΔ vs LSEG** column cross-checks our ICMA engine "
-            "against LSEG's bid yield — the engine stays authoritative. "
-            "LSEG data carries redistribution terms: personal / educational use only."
+            "📉 Real snapshot of Italian sovereign comparables"
+            f"{asof}. The **YTMΔ vs ref** column cross-checks our ICMA engine "
+            "against the reference bid yield — the engine stays authoritative."
         )
 
 # =============================================================================
@@ -254,14 +260,14 @@ with tab_curve:
             # --- LSEG real data + engine cross-check -------------------------
             if "LSEG Yld%" in sane.columns and sane["LSEG Yld%"].notna().any():
                 st.divider()
-                st.subheader("Real LSEG data & engine cross-check")
+                st.subheader("Real reference data & engine cross-check")
                 lm = sane.dropna(subset=["LSEG Yld%"]).copy()
                 lm = lm[lm["LSEG Yld%"].between(-5, 12) & (lm["Years"] >= 0.1)]
-                # Real LSEG bid-yield curve.
+                # Real reference bid-yield curve.
                 st.plotly_chart(
                     ch.scatter(lm, x="Years", y="LSEG Yld%", label="Name", group="Type",
-                               title="LSEG bid-yield curve — Italian sovereigns (real)",
-                               xtitle="Years to maturity", ytitle="LSEG bid yield", suffix="%"),
+                               title="Bid-yield curve — Italian sovereigns (real)",
+                               xtitle="Years to maturity", ytitle="Bid yield", suffix="%"),
                     width="stretch",
                 )
                 cc1, cc2 = st.columns(2)
@@ -272,8 +278,8 @@ with tab_curve:
                         cross = cross[cross["YTMΔ(bps)"].abs() <= 100]
                     st.plotly_chart(
                         ch.scatter(cross, x="LSEG Yld%", y="YTM%", label="Name", group="Type",
-                                   title="Cross-check — engine YTM vs LSEG (45° = agreement)",
-                                   xtitle="LSEG bid yield", ytitle="Engine gross YTM",
+                                   title="Cross-check — engine YTM vs reference (45° = agreement)",
+                                   xtitle="Reference bid yield", ytitle="Engine gross YTM",
                                    suffix="%", height=380),
                         width="stretch",
                     )
@@ -290,10 +296,10 @@ with tab_curve:
                 if "YTMΔ(bps)" in lm.columns and lm["YTMΔ(bps)"].notna().any():
                     d = lm["YTMΔ(bps)"].dropna()
                     st.caption(
-                        f"Engine vs LSEG: median Δ {d.median():+.1f} bps, "
+                        f"Engine vs reference: median Δ {d.median():+.1f} bps, "
                         f"|Δ| ≤ {d.abs().quantile(0.9):.0f} bps for 90% of {len(d)} priced "
-                        "bonds. The ICMA engine reproduces LSEG's bid yield closely; "
-                        "large deltas are stale or near-maturity quotes."
+                        "bonds. The ICMA engine reproduces the reference bid yield "
+                        "closely; large deltas are stale or near-maturity quotes."
                     )
 
         # --- Real macro context: US 10Y since 1953 ---------------------------

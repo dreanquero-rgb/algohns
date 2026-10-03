@@ -377,7 +377,7 @@ class LSEGBundledProvider:
     """
 
     key = "lseg"
-    label = "LSEG — Italian sovereign comparables (bundled)"
+    label = "Italian sovereign comparables (bundled)"
 
     def available(self) -> bool:
         return bool(load_lseg_bundled())
@@ -436,7 +436,7 @@ def load_universe(
 
 
 SOURCE_LABELS = {
-    "lseg": "LSEG — Italian sovereign comparables (bundled)",
+    "lseg": "Italian sovereign comparables (bundled)",
     "rendimentibtp": "rendimentibtp.it — all BTPs",
     "borsa": "Borsa Italiana (MOT/EuroMOT)",
     "csv": "Import CSV (paste/upload)",

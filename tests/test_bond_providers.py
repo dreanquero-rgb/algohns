@@ -223,3 +223,31 @@ class TestLSEGBundled:
         delta = view["YTMΔ(bps)"].dropna().abs()
         assert not delta.empty
         assert delta.median() < 25  # bps — ICMA engine agrees with LSEG
+
+
+# ---------------------------------------------------------------------------
+# Italian-sovereign-only screener filter (drops municipals/corporates/foreign)
+# ---------------------------------------------------------------------------
+class TestSovereignFilter:
+    def test_recognises_italian_state_series(self):
+        from algohns.modules.bond_data import is_italian_sovereign
+        for n in ["BTP Tf 3.85% Lg34", "BOT 2025", "CCT-EU 2030", "CTZ 2026",
+                  "BTP Italia Nov28"]:
+            assert is_italian_sovereign(n), n
+
+    def test_rejects_non_state_issuers(self):
+        from algohns.modules.bond_data import is_italian_sovereign
+        for n in ["Comune di Foggia 4% 2025", "Città di Torino 3% 2027",
+                  "Bund 2.5 2034", "OAT 3% 2033", "Bonos 2035",
+                  "Regione Lombardia 2028", "Enel SpA 2030"]:
+            assert not is_italian_sovereign(n), n
+
+    def test_filter_drops_municipals_keeps_btps(self):
+        import pandas as pd
+        from algohns.modules.bond_data import italian_sovereigns_only
+        df = pd.DataFrame({
+            "ISIN": ["IT0001", "IT0002", "DE0003"],
+            "Name": ["BTP Tf 3.85% Lg34", "Città di Torino 3% 2027", "Bund 2034"],
+        })
+        out = italian_sovereigns_only(df)
+        assert list(out["Name"]) == ["BTP Tf 3.85% Lg34"]
