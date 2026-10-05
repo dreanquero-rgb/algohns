@@ -1,3 +1,19 @@
+---
+title: Algohns
+emoji: 🅰️
+colorFrom: gray
+colorTo: green
+sdk: streamlit
+app_file: app.py
+pinned: false
+python_version: "3.11"
+---
+
+<!-- The YAML block above is Hugging Face Spaces configuration (ignored on
+     GitHub). It pins Python 3.11 — avoiding the pyarrow/type-inference break on
+     bleeding-edge Python that bit us on Streamlit Community Cloud — and tells
+     the Space to run `app.py` with the Streamlit SDK. See docs/DEPLOY_HUGGINGFACE.md. -->
+
 # Algohns
 
 Algohns V12 is a modular **quant asset-management platform** that glues

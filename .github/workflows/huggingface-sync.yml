@@ -1,0 +1,55 @@
+name: Deploy to Hugging Face Spaces
+
+# Mirror this repo to a Hugging Face Space on every push to main, so the live
+# Streamlit app redeploys automatically — the same "push to deploy" flow that
+# Streamlit Community Cloud gave us, but on a Space with far more free RAM.
+#
+# One-time setup (see docs/DEPLOY_HUGGINGFACE.md):
+#   1. Create a Streamlit Space on huggingface.co.
+#   2. Create a Hugging Face *write* token.
+#   3. Add it here as the repository secret HF_TOKEN.
+#   4. (Only if your Space is NOT dreanquero-rgb/algohns) set the repository
+#      variables HF_USERNAME and HF_SPACE to your owner/space names.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to the Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_USERNAME_VAR: ${{ vars.HF_USERNAME }}
+          HF_SPACE_VAR: ${{ vars.HF_SPACE }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HF_TOKEN:-}" ]; then
+            echo "::error::Missing HF_TOKEN. Add a Hugging Face WRITE token under" \
+                 "Settings -> Secrets and variables -> Actions -> New repository secret."
+            exit 1
+          fi
+
+          # Target Space. Defaults to dreanquero-rgb/algohns; override with the
+          # repository variables HF_USERNAME / HF_SPACE if your Space differs.
+          HF_USERNAME="${HF_USERNAME_VAR:-dreanquero-rgb}"
+          HF_SPACE="${HF_SPACE_VAR:-algohns}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "Deploying to https://huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE}"
+          # Force-push because the Space repo has its own independent history; the
+          # Space is a deploy mirror of main, not a branch we develop on.
+          git push --force \
+            "https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE}.git" \
+            HEAD:main
