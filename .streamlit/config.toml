@@ -7,10 +7,12 @@ secondaryBackgroundColor = "#0E0F10"
 textColor = "#F5F7F8"
 font = "sans serif"
 
-[server]
-headless = true
-enableCORS = false
-enableXsrfProtection = true
+# NOTE: do NOT add a [server] block here. On Streamlit Community Cloud the
+# platform's own reverse proxy manages headless/CORS/XSRF, and overriding them
+# (e.g. enableCORS=false with enableXsrfProtection=true) breaks the browser
+# WebSocket handshake — the app then hangs forever on the loading spinner.
+# Keep server settings for local runs in the command line or a local-only
+# config, never in the committed file that the Cloud reads.
 
 [browser]
 gatherUsageStats = false

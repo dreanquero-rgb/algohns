@@ -6,6 +6,12 @@
 # =============================================================================
 -r requirements.txt
 
+# --- Dashboard extras --------------------------------------------------------
+streamlit-ace>=0.1.1       # in-browser syntax-highlighted code editor (Code
+                           # tabs). Optional: without it the editor degrades to
+                           # a plain editable textarea, so it is kept out of the
+                           # lean set to protect the Community Cloud deploy.
+
 # --- Module 1 extras ---------------------------------------------------------
 QuantLib>=1.33             # independent cross-check of YTM/duration/convexity
 # borsa-italiana-scraping is GPL-3.0 and NOT on PyPI; install manually if you

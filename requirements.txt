@@ -9,7 +9,6 @@
 
 # --- Core platform & dashboard ----------------------------------------------
 streamlit>=1.37            # multipage dashboard (st.navigation) + st.fragment
-streamlit-ace>=0.1.1       # in-browser editable code editor (Code tabs)
 plotly>=5.20               # all charts (validated palette, interactive hover)
 pandas>=2.0
 numpy>=1.24
