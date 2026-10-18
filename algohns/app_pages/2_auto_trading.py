@@ -15,6 +15,7 @@ import streamlit as st
 from algohns.config import get_settings
 from algohns.core.data_providers import get_market_data
 from algohns.core.persistence import clear_state, load_state, save_state
+from algohns.core import strategy_store as pmstore
 from algohns.modules.alpaca_execution import AlpacaExecutionEngine, OrderTicket
 from algohns.modules.backtest_suite import Backtester, compute_metrics
 from algohns.modules.risk_profile import ASSET_PROXIES, QUESTIONS, compute_profile
@@ -665,6 +666,79 @@ with tab_paper:
 # =============================================================================
 # STRATEGY LAB  (rules -> screened universe -> weights -> Python)
 # =============================================================================
+# Italian labels for the weighting methods (English keys stay in the code).
+_WEIGHTING_IT = {
+    "equal": "equamente — stesso peso a ogni titolo",
+    "inverse_vol": "inverso della volatilità — le meno volatili pesano di più",
+    "market_cap": "per capitalizzazione — le più grandi pesano di più",
+}
+
+
+def _weighting_label(k: str) -> str:
+    return _WEIGHTING_IT.get(k, f"{k} — {sl.WEIGHTINGS.get(k, '')}")
+
+
+def _criteria_to_dict(c) -> dict:
+    return {
+        "beta_min": c.beta_min, "beta_max": c.beta_max,
+        "market_cap_min": c.market_cap_min, "market_cap_max": c.market_cap_max,
+        "max_volatility": c.max_volatility, "min_dividend_yield": c.min_dividend_yield,
+        "sectors": list(c.sectors), "exclude_sectors": list(c.exclude_sectors),
+        "countries": list(c.countries), "max_positions": c.max_positions,
+        "expression": c.expression,
+    }
+
+
+def _dict_to_criteria(d: dict):
+    return sl.ScreenCriteria(
+        beta_min=d.get("beta_min"), beta_max=d.get("beta_max"),
+        market_cap_min=d.get("market_cap_min"), market_cap_max=d.get("market_cap_max"),
+        max_volatility=d.get("max_volatility"),
+        min_dividend_yield=d.get("min_dividend_yield"),
+        sectors=tuple(d.get("sectors") or ()),
+        exclude_sectors=tuple(d.get("exclude_sectors") or ()),
+        countries=tuple(d.get("countries") or ()),
+        max_positions=int(d.get("max_positions") or 20),
+        expression=d.get("expression") or "",
+    )
+
+
+def _screen_to_weights(full_db: bool, cap_sel, criteria, weighting: str):
+    """Re-run a screen against the live universe -> (picks, weights)."""
+    universe = _full_universe() if full_db else _lab_universe()
+    if universe.empty:
+        return universe, {}
+    screen_src = universe
+    if full_db and "cap_category" in universe.columns:
+        if cap_sel:
+            screen_src = screen_src[screen_src["cap_category"].isin(cap_sel)]
+        rank = {c: i for i, c in enumerate(CAP_ORDER)}
+        screen_src = screen_src.assign(
+            _caprank=screen_src["cap_category"].map(rank).fillna(99)
+        ).sort_values("_caprank")
+    picks = sl.screen_universe(screen_src, criteria)
+    weights = sl.build_weights(picks, weighting) if not picks.empty else {}
+    return picks, weights
+
+
+def _save_pm_strategy(name, criteria, weighting, full_db, cap_sel, risk_level) -> None:
+    pmstore.save_strategy(pmstore.Strategy(
+        name=(name or "PM strategy").strip(), section="PM", kind="rules",
+        params={
+            "criteria": _criteria_to_dict(criteria), "weighting": weighting,
+            "full_db": bool(full_db), "cap_sel": list(cap_sel or []),
+            "risk_level": risk_level,
+        },
+    ))
+
+
+def _execute_pm_weights(weights: dict, invest_pct: float, dry_run: bool):
+    """Build / rebalance the PM paper account to `weights` scaled by invest_pct."""
+    eng = AlpacaExecutionEngine(*get_settings().pm_alpaca_keys())
+    scaled = {k: float(v) * (invest_pct / 100.0) for k, v in weights.items()}
+    return eng.rebalance_to_weights(scaled, dry_run=dry_run)
+
+
 @st.fragment
 def strategy_lab_panel() -> None:
     st.subheader("Strategy Lab — state the rules, read the code")
@@ -674,6 +748,52 @@ def strategy_lab_panel() -> None:
         "from these exact rules and calls the same platform functions the app "
         "runs, so it reproduces the allocation rather than approximating it."
     )
+
+    # --- Saved PM strategies (library — rebalance any of them anytime) -------
+    saved_pm = pmstore.list_strategies("PM")
+    if saved_pm:
+        with st.expander(f"📚 Strategie salvate ({len(saved_pm)})", expanded=False):
+            st.caption("Ognuna si può ri-eseguire in ogni momento: ri-screena il "
+                       "full database e ribilancia il conto PM ai nuovi pesi.")
+            for s in saved_pm:
+                p = s.params
+                row = st.columns([4, 1, 1, 1])
+                row[0].markdown(
+                    f"**{s.name}** · pesatura `{p.get('weighting')}` · "
+                    f"{'full DB' if p.get('full_db') else 'curated'} · "
+                    f"rischio {p.get('risk_level', '?')}")
+                if row[1].button("👁", key=f"pm_lib_dry_{s.id}", help="Dry-run"):
+                    try:
+                        _, w = _screen_to_weights(
+                            p.get("full_db"), p.get("cap_sel"),
+                            _dict_to_criteria(p["criteria"]), p["weighting"])
+                        if not w:
+                            st.info("Lo screen non seleziona titoli ora.")
+                        else:
+                            st.dataframe(pd.DataFrame(_execute_pm_weights(w, 100, True)),
+                                         use_container_width=True, hide_index=True)
+                    except Exception as exc:  # noqa: BLE001
+                        _show_alpaca_error("Dry-run", exc)
+                if row[2].button("🔁", key=f"pm_lib_run_{s.id}",
+                                 help="Ri-screena & ribilancia",
+                                 disabled=not settings.alpaca_pm_configured):
+                    try:
+                        _, w = _screen_to_weights(
+                            p.get("full_db"), p.get("cap_sel"),
+                            _dict_to_criteria(p["criteria"]), p["weighting"])
+                        if not w:
+                            st.warning("Lo screen non seleziona titoli ora.")
+                        else:
+                            plan = _execute_pm_weights(w, 100, False)
+                            _persist_strategy(w)
+                            st.success(f"Ribilanciato su «{s.name}»: {len(plan)} ordini.")
+                            st.dataframe(pd.DataFrame(plan), use_container_width=True,
+                                         hide_index=True)
+                    except Exception as exc:  # noqa: BLE001
+                        _show_alpaca_error("Esecuzione", exc)
+                if row[3].button("🗑", key=f"pm_lib_del_{s.id}", help="Elimina"):
+                    pmstore.delete_strategy("PM", s.id)
+                    st.rerun()
 
     src = st.radio(
         "Universe",
@@ -737,9 +857,10 @@ def strategy_lab_panel() -> None:
                  "and nothing else.",
         )
 
-        st.markdown("**2 · Weighting**")
-        weighting = st.selectbox("Weighting scheme", list(sl.WEIGHTINGS.keys()),
-                                 format_func=lambda k: f"{k} — {sl.WEIGHTINGS[k]}")
+        st.markdown("**2 · Metodo di pesatura**")
+        weighting = st.selectbox("Come distribuire il capitale tra i titoli",
+                                 list(sl.WEIGHTINGS.keys()),
+                                 format_func=_weighting_label)
         rebalance_sl = st.selectbox("Rebalance", ["Q", "M", "Y", "none"], index=0,
                                     key="sl_rebal")
 
@@ -853,17 +974,52 @@ def strategy_lab_panel() -> None:
                                    file_name="algohns_strategy.py",
                                    mime="text/x-python")
 
-            if st.button("✅ Confirm strategy (→ Paper Trading & Backtest)",
-                         type="primary"):
+            st.markdown("**5 · Salva ed esegui**")
+            cn = st.columns([3, 2])
+            strat_name = cn[0].text_input(
+                "Nome strategia", value=f"PM {weighting} · {len(weights)} titoli",
+                key="pm_strat_name")
+            invest_pct = cn[1].slider(
+                "Capitale da investire (%)", 10, 100, 100, 5, key="pm_invest_pct",
+                help="Quota dell'equity del conto PM da allocare alla strategia.")
+
+            bb = st.columns(3)
+            if bb[0].button("💾 Salva strategia", key="pm_save_only"):
+                _save_pm_strategy(strat_name, criteria, weighting, full_db, cap_sel, risk_level)
+                st.success(f"Salvata «{strat_name}» nella libreria PM (in alto).")
+                st.rerun()
+
+            if bb[1].button("✅ Conferma, salva ed esegui", type="primary",
+                            key="pm_confirm_exec"):
+                _save_pm_strategy(strat_name, criteria, weighting, full_db, cap_sel, risk_level)
                 _persist_strategy(weights)
                 st.session_state["confirmed_risk_level"] = risk_level
                 st.session_state["strategy_confirmed"] = True
-                save_state("strategy_meta", {"risk_level": risk_level,
-                                             "n": len(weights)})
-                st.success(f"✅ Confirmed — {len(weights)} holdings (**{risk_level}**). "
-                           "This is now the strategy you trade and backtest "
-                           "(saved across restarts).")
-                st.rerun()   # full-app rerun so the other tabs see the handoff
+                save_state("strategy_meta", {"risk_level": risk_level, "n": len(weights)})
+                if settings.alpaca_pm_configured:
+                    try:
+                        plan = _execute_pm_weights(weights, invest_pct, dry_run=False)
+                        st.success(f"✅ «{strat_name}» salvata e **portafoglio costruito**: "
+                                   f"{len(plan)} ordini inviati sul conto PM.")
+                        st.dataframe(pd.DataFrame(plan), use_container_width=True,
+                                     hide_index=True)
+                    except Exception as exc:  # noqa: BLE001
+                        _show_alpaca_error("Esecuzione fallita", exc)
+                else:
+                    st.warning("Strategia salvata e confermata, ma il conto PM non è "
+                               "configurato (ALPACA_PM_* o le chiavi principali): "
+                               "nessun ordine inviato.")
+
+            if bb[2].button("👁 Anteprima ordini (dry-run)", key="pm_dry_confirm"):
+                if settings.alpaca_pm_configured:
+                    try:
+                        plan = _execute_pm_weights(weights, invest_pct, dry_run=True)
+                        st.dataframe(pd.DataFrame(plan), use_container_width=True,
+                                     hide_index=True)
+                    except Exception as exc:  # noqa: BLE001
+                        _show_alpaca_error("Anteprima", exc)
+                else:
+                    st.info("Conto PM non configurato.")
 
             with st.expander("🤖 Automate — trade this strategy daily"):
                 st.caption(
