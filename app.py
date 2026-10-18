@@ -169,15 +169,27 @@ def home() -> None:
 # ---------------------------------------------------------------------------
 # Navigation
 # ---------------------------------------------------------------------------
+# Apply any saved Code Studio edits to the live engines (private instance only;
+# a broken override is skipped, never activated, so it can't break the app).
+try:
+    from algohns.core.code_store import activate_overrides
+    activate_overrides()
+except Exception:  # noqa: BLE001 - overrides are a convenience, never fatal
+    pass
+
 pages = {
-    "Overview": [
+    "① Portfolio Management": [
         st.Page(home, title="Control Center", icon="🏦", default=True),
-    ],
-    "Platform Modules": [
         st.Page("algohns/app_pages/1_bond_engine.py", title="Bond Yield & Tax", icon="📈"),
-        st.Page("algohns/app_pages/2_auto_trading.py", title="Alpaca Auto-Trading", icon="🤖"),
+        st.Page("algohns/app_pages/2_auto_trading.py", title="Portfolio & Rebalance", icon="📊"),
         st.Page("algohns/app_pages/3_backtest_suite.py", title="Backtest & Optimize", icon="🧪"),
         st.Page("algohns/app_pages/6_world_simulation.py", title="World Simulation", icon="🌍"),
+    ],
+    "② Auto-Trading · HFT": [
+        st.Page("algohns/app_pages/7_hft_autotrading.py", title="HFT Engine", icon="🤖"),
+    ],
+    "🧩 Developer": [
+        st.Page("algohns/app_pages/8_code_studio.py", title="Code Studio", icon="⌨️"),
     ],
 }
 
