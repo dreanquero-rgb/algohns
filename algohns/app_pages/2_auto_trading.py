@@ -176,7 +176,7 @@ def _full_universe():
 def _tradable_symbols() -> list[str]:
     """Symbols Alpaca can actually trade (cached). Empty if keys/network absent."""
     try:
-        return sorted(AlpacaExecutionEngine().tradable_symbols())
+        return sorted(AlpacaExecutionEngine(*get_settings().pm_alpaca_keys()).tradable_symbols())
     except Exception:  # noqa: BLE001
         return []
 
@@ -339,15 +339,23 @@ with tab_bt:
 # PAPER TRADING (first tab — the thing you return to once a strategy exists)
 # =============================================================================
 with tab_paper:
-    if not settings.alpaca_configured:
-        st.warning("Set ALPACA_API_KEY / ALPACA_SECRET_KEY to trade on the paper account.")
+    if settings.alpaca_pm_dedicated:
+        st.caption("🏦 Conto **Portfolio Management** (chiavi dedicate `ALPACA_PM_*`).")
+    elif settings.alpaca_pm_configured:
+        st.caption("🏦 Portfolio Management sul **conto principale** (nessuna chiave "
+                   "dedicata: imposta `ALPACA_PM_API_KEY` / `ALPACA_PM_SECRET_KEY` per "
+                   "separarlo dall'HFT).")
+    if not settings.alpaca_pm_configured:
+        st.warning("Imposta ALPACA_PM_API_KEY / ALPACA_PM_SECRET_KEY (o le chiavi "
+                   "principali ALPACA_API_KEY / ALPACA_SECRET_KEY) per operare sul "
+                   "conto paper del Portfolio Management.")
     try:
-        engine = AlpacaExecutionEngine()
+        engine = AlpacaExecutionEngine(*settings.pm_alpaca_keys())
     except Exception as exc:  # noqa: BLE001
         dependency_notice(exc)
         st.stop()
 
-    if settings.alpaca_configured:
+    if settings.alpaca_pm_configured:
         with st.expander("⚙️ Account trading status", expanded=False):
             st.caption(
                 "If orders are rejected with **code 40310000 — 'new orders are "
@@ -387,8 +395,8 @@ with tab_paper:
         }
         rc = st.columns([2, 2, 3])
         range_label = rc[0].selectbox("Intervallo", list(_RANGES), index=2,
-                                      disabled=not settings.alpaca_configured)
-        if rc[1].button("Refresh snapshot", disabled=not settings.alpaca_configured):
+                                      disabled=not settings.alpaca_pm_configured)
+        if rc[1].button("Refresh snapshot", disabled=not settings.alpaca_pm_configured):
             period, timeframe = _RANGES[range_label]
             try:
                 st.session_state["_pf_snap"] = engine.portfolio_snapshot()
@@ -424,7 +432,7 @@ with tab_paper:
                 st.plotly_chart(
                     ch.area(ret["Return %"], title="Return cumulato (%)"),
                     width="stretch")
-            elif settings.alpaca_configured:
+            elif settings.alpaca_pm_configured:
                 st.caption("Storico portafoglio non ancora disponibile per questo "
                            "intervallo (serve almeno un giorno di attività sul conto).")
 
@@ -432,7 +440,7 @@ with tab_paper:
                 _safe_table(pd.DataFrame(snap["positions"]))
             else:
                 st.info("No open positions.")
-        elif settings.alpaca_configured:
+        elif settings.alpaca_pm_configured:
             st.caption("Premi **Refresh snapshot** per caricare portafoglio e return.")
 
     with sub[1]:
@@ -519,11 +527,11 @@ with tab_paper:
 
         c1, c2 = st.columns(2)
         do_preview = c1.button("🔍 Preview plan (no orders sent)",
-                               disabled=not (settings.alpaca_configured and weights))
+                               disabled=not (settings.alpaca_pm_configured and weights))
         do_send = c2.button("🚀 Send orders to Alpaca (PAPER)", type="primary",
-                            disabled=not (settings.alpaca_configured and weights))
+                            disabled=not (settings.alpaca_pm_configured and weights))
 
-        if not settings.alpaca_configured:
+        if not settings.alpaca_pm_configured:
             st.warning("Set ALPACA_API_KEY / ALPACA_SECRET_KEY to enable trading.")
 
         if do_preview or do_send:
@@ -586,7 +594,7 @@ with tab_paper:
                 _safe_json(engine.preview_order(ticket))
             except Exception as exc:  # noqa: BLE001
                 _show_alpaca_error("Preview failed", exc)
-        if execute and settings.alpaca_configured:
+        if execute and settings.alpaca_pm_configured:
             try:
                 # Refuse an identical order while one is already open, and send a
                 # time-bucketed client_order_id so a double-click can't double-send.
@@ -615,7 +623,7 @@ with tab_paper:
                 _show_alpaca_error("Close-all failed", exc)
 
     with sub[3]:
-        if st.button("Load order journal", disabled=not settings.alpaca_configured):
+        if st.button("Load order journal", disabled=not settings.alpaca_pm_configured):
             try:
                 orders = engine.list_orders(status="all", limit=50)
                 if orders:

@@ -32,7 +32,8 @@ st.set_page_config(
 # set, so local .env behaviour is unchanged, and missing secrets are simply
 # skipped (the app still runs, features that need a key just show "not set").
 _SECRET_KEYS = (
-    "ALPACA_API_KEY", "ALPACA_SECRET_KEY", "ALPACA_PAPER", "ALPACA_BASE_URL",
+    "ALPACA_API_KEY", "ALPACA_SECRET_KEY",
+    "ALPACA_PM_API_KEY", "ALPACA_PM_SECRET_KEY", "ALPACA_PAPER", "ALPACA_BASE_URL",
     "ALPACA_DATA_BASE_URL", "REDIS_URL", "SEC_USER_AGENT", "DEFAULT_TAX_RESIDENCE",
     "ALGO_AUTO_REBALANCE", "ALGO_STRATEGY", "ALGO_REBALANCE_CRON",
     "ALGO_TARGET_WEIGHTS", "ALGO_SYNC_INTERVAL", "ALGO_ALLOW_CODE_EXEC",

@@ -177,6 +177,9 @@ with tab_run:
 
             st.divider()
             st.markdown("**Esecuzione paper** (solo acquisti, notional)")
+            st.caption("🤖 Conto **HFT** = chiavi principali `ALPACA_API_KEY` / "
+                       "`ALPACA_SECRET_KEY` (il Portfolio Management usa le sue "
+                       "`ALPACA_PM_*`, se impostate).")
             notional = st.number_input("$ per posizione (BUY)", value=1000.0,
                                        step=100.0, min_value=10.0)
             confirm = st.checkbox("Confermo l'invio di ordini paper su Alpaca")

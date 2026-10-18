@@ -42,6 +42,11 @@ class Settings:
     # --- Alpaca (Module 2) ---------------------------------------------------
     alpaca_api_key: str = field(default_factory=lambda: os.getenv("ALPACA_API_KEY", ""))
     alpaca_secret_key: str = field(default_factory=lambda: os.getenv("ALPACA_SECRET_KEY", ""))
+    # Portfolio Management uses a SEPARATE Alpaca account/keys when these are set,
+    # so the macro portfolio and the HFT engine trade different paper accounts.
+    # If unset, PM falls back to the main keys above (single-account behaviour).
+    alpaca_pm_api_key: str = field(default_factory=lambda: os.getenv("ALPACA_PM_API_KEY", ""))
+    alpaca_pm_secret_key: str = field(default_factory=lambda: os.getenv("ALPACA_PM_SECRET_KEY", ""))
     # HARD RULE inherited from Algohns V11: paper trading only.
     alpaca_paper: bool = field(default_factory=lambda: _env_bool("ALPACA_PAPER", True))
     alpaca_base_url: str = field(
@@ -124,6 +129,24 @@ class Settings:
     def alpaca_configured(self) -> bool:
         return bool(self.alpaca_api_key and self.alpaca_secret_key)
 
+    def pm_alpaca_keys(self) -> tuple[str, str]:
+        """(api_key, secret) for Portfolio Management: its own keys if set,
+        else a fallback to the main account."""
+        return (
+            self.alpaca_pm_api_key or self.alpaca_api_key,
+            self.alpaca_pm_secret_key or self.alpaca_secret_key,
+        )
+
+    @property
+    def alpaca_pm_configured(self) -> bool:
+        key, secret = self.pm_alpaca_keys()
+        return bool(key and secret)
+
+    @property
+    def alpaca_pm_dedicated(self) -> bool:
+        """True when Portfolio Management has its OWN keys (not the fallback)."""
+        return bool(self.alpaca_pm_api_key and self.alpaca_pm_secret_key)
+
     @property
     def celery_broker(self) -> str:
         return self.celery_broker_url or self.redis_url
@@ -143,6 +166,8 @@ class Settings:
         return {
             "ALPACA_API_KEY": mask(self.alpaca_api_key),
             "ALPACA_SECRET_KEY": mask(self.alpaca_secret_key),
+            "ALPACA_PM_API_KEY": mask(self.alpaca_pm_api_key),
+            "ALPACA_PM_SECRET_KEY": mask(self.alpaca_pm_secret_key),
             "ALPACA_PAPER": str(self.alpaca_paper),
             "ALPACA_BASE_URL": self.alpaca_base_url,
             "REDIS_URL": self.redis_url,
