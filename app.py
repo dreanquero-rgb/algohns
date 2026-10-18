@@ -36,6 +36,7 @@ _SECRET_KEYS = (
     "ALPACA_DATA_BASE_URL", "REDIS_URL", "SEC_USER_AGENT", "DEFAULT_TAX_RESIDENCE",
     "ALGO_AUTO_REBALANCE", "ALGO_STRATEGY", "ALGO_REBALANCE_CRON",
     "ALGO_TARGET_WEIGHTS", "ALGO_SYNC_INTERVAL", "ALGO_ALLOW_CODE_EXEC",
+    "ALGO_APP_PASSCODE",
 )
 try:
     for _k in _SECRET_KEYS:
@@ -48,6 +49,63 @@ except Exception:  # noqa: BLE001 - no secrets locally is the normal case
     pass
 
 inject_theme()
+
+
+# ---------------------------------------------------------------------------
+# Private access gate
+# ---------------------------------------------------------------------------
+def _require_login() -> None:
+    """Passcode gate that keeps the whole dashboard — and especially the code
+    editor and code execution — private.
+
+    A public URL that could run edited Python would be an RCE and a key-exposure
+    hole, so nothing renders until the creator code is entered. The code is read
+    from ``ALGO_APP_PASSCODE`` (host secret / env var) and falls back to a
+    built-in default only so the app works out of the box. **Set the secret on
+    your host for real privacy** — the repo default is visible to anyone.
+    """
+    if st.session_state.get("_authed"):
+        return
+
+    expected = (os.environ.get("ALGO_APP_PASSCODE") or "").strip()
+    try:
+        _s = st.secrets.get("ALGO_APP_PASSCODE")  # raises if no secrets file
+        if _s:
+            expected = str(_s).strip()
+    except Exception:  # noqa: BLE001 - no secrets locally is normal
+        pass
+    expected = expected or "0407"  # convenience default; override via secret
+
+    _, mid, _ = st.columns([1, 2, 1])
+    with mid:
+        st.markdown('<span class="algohns-badge">Algohns · area privata</span>',
+                    unsafe_allow_html=True)
+        st.title("🔒 Accesso")
+        st.caption("Inserisci il codice creatore per entrare.")
+        code = st.text_input(
+            "Codice", type="password", key="_login_code",
+            label_visibility="collapsed", placeholder="Codice creatore",
+        )
+        if st.button("Entra", type="primary", use_container_width=True):
+            if code and code.strip() == expected:
+                st.session_state["_authed"] = True
+                # Being behind this gate is what makes running edited code safe,
+                # so unlock the sandbox for this now-private instance.
+                os.environ["ALGO_ALLOW_CODE_EXEC"] = "true"
+                get_settings.cache_clear()
+                st.rerun()
+            else:
+                st.error("Codice errato.")
+    st.stop()
+
+
+_require_login()
+
+with st.sidebar:
+    if st.button("🔓 Esci", key="_logout", use_container_width=True):
+        for _k in ("_authed", "_login_code"):
+            st.session_state.pop(_k, None)
+        st.rerun()
 
 
 # ---------------------------------------------------------------------------
