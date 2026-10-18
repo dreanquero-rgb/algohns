@@ -375,19 +375,65 @@ with tab_paper:
     sub = st.tabs(["Portfolio", "Apply profile", "Order ticket", "Journal"])
 
     with sub[0]:
-        if st.button("Refresh snapshot", disabled=not settings.alpaca_configured):
+        # Range -> (Alpaca period, timeframe). Paired so intraday timeframes are
+        # only used with short periods (avoids Alpaca 422 on invalid combos).
+        _RANGES = {
+            "Oggi": ("1D", "5Min"),
+            "Settimana": ("1W", "1H"),
+            "Mese": ("1M", "1D"),
+            "3 Mesi": ("3M", "1D"),
+            "Anno": ("1A", "1D"),
+            "Tutto": ("all", "1D"),
+        }
+        rc = st.columns([2, 2, 3])
+        range_label = rc[0].selectbox("Intervallo", list(_RANGES), index=2,
+                                      disabled=not settings.alpaca_configured)
+        if rc[1].button("Refresh snapshot", disabled=not settings.alpaca_configured):
+            period, timeframe = _RANGES[range_label]
             try:
-                snap = engine.portfolio_snapshot()
-                c = st.columns(3)
-                c[0].metric("Equity", f"${snap['equity']:,.2f}")
-                c[1].metric("Cash", f"${snap['cash']:,.2f}")
-                c[2].metric("Buying power", f"${snap['buying_power']:,.2f}")
-                if snap["positions"]:
-                    _safe_table(pd.DataFrame(snap["positions"]))
-                else:
-                    st.info("No open positions.")
+                st.session_state["_pf_snap"] = engine.portfolio_snapshot()
+                st.session_state["_pf_hist"] = engine.portfolio_history(
+                    period=period, timeframe=timeframe)
             except Exception as exc:  # noqa: BLE001
                 _show_alpaca_error("Alpaca error", exc)
+
+        snap = st.session_state.get("_pf_snap")
+        if snap:
+            c = st.columns(3)
+            c[0].metric("Equity", f"${snap['equity']:,.2f}")
+            c[1].metric("Cash", f"${snap['cash']:,.2f}")
+            c[2].metric("Buying power", f"${snap['buying_power']:,.2f}")
+
+            # --- Return curves (the thing that was missing) ------------------
+            hist = st.session_state.get("_pf_hist")
+            if hist is not None and not hist.empty:
+                start_eq = hist["equity"].iloc[0]
+                last_eq = hist["equity"].iloc[-1]
+                abs_pl = last_eq - start_eq
+                pct = hist["profit_loss_pct"].iloc[-1] * 100 \
+                    if "profit_loss_pct" in hist else 0.0
+                m = st.columns(2)
+                m[0].metric("P/L periodo", f"${abs_pl:,.2f}",
+                            f"{(abs_pl / start_eq * 100) if start_eq else 0:.2f}%")
+                m[1].metric("Return cumulato", f"{pct:.2f}%")
+                st.plotly_chart(
+                    ch.line(hist[["equity"]].rename(columns={"equity": "Equity"}),
+                            title=f"Equity curve — {range_label}", yfmt="$,.0f"),
+                    width="stretch")
+                ret = (hist["profit_loss_pct"] * 100).rename("Return %").to_frame()
+                st.plotly_chart(
+                    ch.area(ret["Return %"], title="Return cumulato (%)"),
+                    width="stretch")
+            elif settings.alpaca_configured:
+                st.caption("Storico portafoglio non ancora disponibile per questo "
+                           "intervallo (serve almeno un giorno di attività sul conto).")
+
+            if snap["positions"]:
+                _safe_table(pd.DataFrame(snap["positions"]))
+            else:
+                st.info("No open positions.")
+        elif settings.alpaca_configured:
+            st.caption("Premi **Refresh snapshot** per caricare portafoglio e return.")
 
     with sub[1]:
         override = st.session_state.get("risk_profile_override")

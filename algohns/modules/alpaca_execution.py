@@ -188,6 +188,65 @@ class AlpacaExecutionEngine:
             "positions": alloc,
         }
 
+    def portfolio_history(
+        self,
+        period: str = "1M",
+        timeframe: str = "1D",
+        extended_hours: bool = True,
+    ) -> "Any":
+        """Equity curve & P/L of the paper account over time.
+
+        Hits Alpaca's ``/v2/account/portfolio/history`` endpoint directly (via
+        ``requests``) so it does not depend on a particular ``alpaca-py``
+        version exposing the call. Returns a pandas ``DataFrame`` indexed by
+        timestamp with columns ``equity``, ``profit_loss`` and
+        ``profit_loss_pct`` (the pct is a fraction, e.g. 0.0123 = +1.23%).
+
+        Best-effort: returns an **empty** DataFrame when keys are missing, the
+        request fails, or the account has no history yet — the UI then shows a
+        friendly "no data" note instead of erroring.
+
+        ``period``: 1D, 1W, 1M, 3M, 1A, all. ``timeframe``: 1Min, 5Min, 15Min,
+        1H, 1D (intraday timeframes are only valid for short periods).
+        """
+        import pandas as pd
+
+        if not self.configured:
+            return pd.DataFrame()
+        try:
+            import requests
+
+            base = get_settings().alpaca_base_url.rstrip("/")
+            resp = requests.get(
+                f"{base}/v2/account/portfolio/history",
+                headers={
+                    "APCA-API-KEY-ID": self.api_key,
+                    "APCA-API-SECRET-KEY": self.secret_key,
+                },
+                params={
+                    "period": period,
+                    "timeframe": timeframe,
+                    "extended_hours": str(bool(extended_hours)).lower(),
+                },
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            ts = data.get("timestamp") or []
+            if not ts:
+                return pd.DataFrame()
+            df = pd.DataFrame(
+                {
+                    "equity": data.get("equity") or [],
+                    "profit_loss": data.get("profit_loss") or [],
+                    "profit_loss_pct": data.get("profit_loss_pct") or [],
+                },
+                index=pd.to_datetime(ts, unit="s"),
+            )
+            return df.apply(pd.to_numeric, errors="coerce").dropna(how="all")
+        except Exception:  # noqa: BLE001 - history is best-effort for display
+            return pd.DataFrame()
+
     # --------------------------------------------------------------- orders
     def open_order_keys(self) -> set[tuple[str, str]]:
         """(symbol, side) of every order still open (not filled/cancelled).
