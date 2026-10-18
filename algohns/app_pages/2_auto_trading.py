@@ -628,13 +628,37 @@ with tab_paper:
                 _show_alpaca_error("Close-all failed", exc)
 
     with sub[3]:
+        st.caption("Ogni ordine: **quale titolo** e **a che prezzo** è stato eseguito.")
         if st.button("Load order journal", disabled=not settings.alpaca_pm_configured):
             try:
                 orders = engine.list_orders(status="all", limit=50)
-                if orders:
-                    _safe_table(pd.DataFrame(orders))
+                if orders and not (len(orders) == 1 and "error" in orders[0]):
+                    def _clean(v, prefix=""):
+                        s = str(v or "").replace(prefix, "")
+                        return s.lower() if s else "—"
+
+                    def _price(o):
+                        p = o.get("filled_avg_price")
+                        try:
+                            return f"${float(p):,.2f}" if p not in (None, "") else "—"
+                        except Exception:  # noqa: BLE001
+                            return "—"
+
+                    rows = [{
+                        "Titolo": o.get("symbol"),
+                        "Lato": _clean(o.get("side"), "OrderSide."),
+                        "Qtà": o.get("filled_qty") or o.get("qty") or "—",
+                        "Prezzo eseguito": _price(o),
+                        "Tipo": _clean(o.get("type"), "OrderType."),
+                        "Stato": _clean(o.get("status"), "OrderStatus."),
+                        "Quando": o.get("filled_at") or o.get("submitted_at") or "—",
+                    } for o in orders]
+                    st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                                 hide_index=True)
+                elif orders:
+                    _show_alpaca_error("Journal error", Exception(orders[0].get("error", "?")))
                 else:
-                    st.info("No orders.")
+                    st.info("Nessun ordine.")
             except Exception as exc:  # noqa: BLE001
                 _show_alpaca_error("Journal error", exc)
 
