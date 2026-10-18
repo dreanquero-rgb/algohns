@@ -112,6 +112,19 @@ with tab_lib:
 # Run / monitor
 # ---------------------------------------------------------------------------
 with tab_run:
+    with st.expander("🏦 Verifica conto HFT", expanded=False):
+        st.caption("Conto HFT = chiavi principali `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`. "
+                   "Dev'essere **diverso** dal numero di conto del Portfolio Management.")
+        if st.button("Mostra conto HFT", disabled=not settings.alpaca_configured):
+            try:
+                snap = AlpacaExecutionEngine().portfolio_snapshot()
+                st.success(f"N° conto HFT: `{snap.get('account_number')}` · "
+                           f"equity ${snap.get('equity', 0):,.2f}")
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Errore Alpaca: {exc}")
+        if not settings.alpaca_configured:
+            st.info("Chiavi principali Alpaca non configurate.")
+
     saved = store.list_strategies(SECTION)
     if not saved:
         st.info("Prima salva una strategia nella tab **Strategie**.")

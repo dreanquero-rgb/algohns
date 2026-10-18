@@ -407,6 +407,11 @@ with tab_paper:
 
         snap = st.session_state.get("_pf_snap")
         if snap:
+            acct_no = snap.get("account_number")
+            if acct_no:
+                st.success(f"🏦 Conto **Portfolio Management** · N° `{acct_no}`"
+                           + (" · chiavi dedicate `ALPACA_PM_*`"
+                              if settings.alpaca_pm_dedicated else " · (fallback conto principale)"))
             c = st.columns(3)
             c[0].metric("Equity", f"${snap['equity']:,.2f}")
             c[1].metric("Cash", f"${snap['cash']:,.2f}")

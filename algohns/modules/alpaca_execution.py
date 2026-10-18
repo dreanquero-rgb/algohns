@@ -182,6 +182,8 @@ class AlpacaExecutionEngine:
                 }
             )
         return {
+            "account_number": acct.get("account_number") or acct.get("id"),
+            "status": acct.get("status"),
             "equity": equity,
             "cash": float(acct.get("cash", 0) or 0),
             "buying_power": float(acct.get("buying_power", 0) or 0),
