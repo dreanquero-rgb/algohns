@@ -284,11 +284,31 @@ with tab_risk:
                         value_fmt="{:.1f}", suffix="%"),
                 width="stretch")
         st.dataframe(alloc_df, width="stretch", hide_index=True)
-        st.info("💡 This is a **suggestion** based on your risk appetite. To trade, "
-                "define and **confirm** your strategy in the **Strategy Lab**.")
-        if st.button("Use this suggestion as a starting point in the Strategy Lab"):
-            st.session_state["risk_suggestion"] = dict(profile.ticker_allocation)
-            st.success("Saved as a starting point — open the Strategy Lab.")
+
+        # Concrete, non-binding suggestion of what to set in the Strategy Lab.
+        score = float(getattr(profile, "score", 50) or 50)
+        if score < 40:
+            sugg = {"beta": "0.0 – 0.90 (difensivo)", "pesatura": "inverso volatilità",
+                    "posizioni": "10–15", "vol": "≤ 0.30"}
+        elif score < 70:
+            sugg = {"beta": "0.0 – 1.20 (bilanciato)", "pesatura": "equamente",
+                    "posizioni": "12–20", "vol": "≤ 0.45"}
+        else:
+            sugg = {"beta": "0.9 – 1.60 (aggressivo)", "pesatura": "per capitalizzazione",
+                    "posizioni": "15–30", "vol": "≤ 0.70"}
+        st.info(
+            f"💡 **Suggerimento (non vincolante, non esegue nulla).** Profilo "
+            f"**{profile.label}** → nello **Strategy Lab** parti con: "
+            f"banda beta **{sugg['beta']}**, metodo di pesatura **{sugg['pesatura']}**, "
+            f"max posizioni **{sugg['posizioni']}**, volatilità max **{sugg['vol']}**. "
+            "Poi affina i filtri e **Conferma** lì per costruire il portafoglio.")
+        if st.button("Salva come punto di partenza per lo Strategy Lab"):
+            st.session_state["risk_suggestion"] = {
+                "label": profile.label, **sugg,
+                "tickers": dict(profile.ticker_allocation),
+            }
+            st.success("Salvato come spunto — apri lo **Strategy Lab**. "
+                       "(Resta un suggerimento: non parte nessun ordine.)")
 
 # =============================================================================
 # INTEGRATED BACKTEST (separate from Module 3)
@@ -381,7 +401,7 @@ with tab_paper:
                 except Exception as exc:  # noqa: BLE001
                     _show_alpaca_error("Could not re-enable trading", exc)
 
-    sub = st.tabs(["Portfolio", "Apply profile", "Order ticket", "Journal"])
+    sub = st.tabs(["Portfolio", "Order ticket", "Journal"])
 
     with sub[0]:
         # Range -> (Alpaca period, timeframe). Paired so intraday timeframes are
@@ -450,137 +470,6 @@ with tab_paper:
             st.caption("Premi **Refresh snapshot** per caricare portafoglio e return.")
 
     with sub[1]:
-        override = st.session_state.get("risk_profile_override")
-        profile = st.session_state.get("risk_profile")
-        base_weights = dict(override) if override else (
-            dict(profile.ticker_allocation) if profile else {})
-
-        if override:
-            st.caption("Starting from the **active strategy** (Strategy Lab, saved "
-                       "across restarts). Edit it below.")
-            if st.button("↩ Use my risk-profile allocation instead"):
-                st.session_state.pop("risk_profile_override", None)
-                st.session_state.pop("target_alloc_editor", None)
-                clear_state("active_strategy")
-                st.rerun()
-        elif profile:
-            st.caption(f"Starting from your **{profile.label}** risk-profile "
-                       "allocation. Edit it below.")
-        else:
-            st.caption("No strategy yet — add symbols and weights below, or build "
-                       "one in the **Strategy Lab**.")
-
-        # --- Editable target allocation --------------------------------------
-        st.markdown("**Target allocation** — edit weights, add or remove rows:")
-        alloc_df = pd.DataFrame(
-            [{"symbol": str(s).upper(), "weight": float(w)}
-             for s, w in base_weights.items()]
-        ) if base_weights else pd.DataFrame({"symbol": ["SPY", "AGG"],
-                                             "weight": [0.6, 0.4]})
-        edited = st.data_editor(
-            alloc_df, num_rows="dynamic", width="stretch", hide_index=True,
-            key="target_alloc_editor",
-            column_config={
-                "symbol": st.column_config.TextColumn(
-                    "Symbol", help="US ticker (Alpaca trades US equities)."),
-                "weight": st.column_config.NumberColumn(
-                    "Weight", help="Relative weight; normalised to 100% on send.",
-                    min_value=0.0, step=0.01, format="%.4f"),
-            },
-        )
-
-        # Parse the edited table into a clean {SYMBOL: weight} dict.
-        weights: dict[str, float] = {}
-        for _, row in edited.iterrows():
-            sym = str(row.get("symbol") or "").strip().upper()
-            try:
-                w = float(row.get("weight") or 0.0)
-            except (TypeError, ValueError):
-                w = 0.0
-            if sym and w > 0:
-                weights[sym] = weights.get(sym, 0.0) + w
-        total = sum(weights.values())
-        if total > 0:
-            weights = {s: w / total for s, w in weights.items()}  # normalise to 1
-
-        # Flag symbols Alpaca can't trade, before anything is sent.
-        tradable = set(_tradable_symbols())
-        if weights:
-            if tradable:
-                bad = sorted(s for s in weights if s not in tradable)
-                if bad:
-                    st.warning("Not tradable on Alpaca (US equities only), will be "
-                               f"skipped: {', '.join(bad)}")
-            cc = st.columns(3)
-            cc[0].metric("Symbols", len(weights))
-            cc[1].metric("Weight sum", f"{total:.2f} → 100%")
-            cc[2].metric("Tradable",
-                         f"{sum(1 for s in weights if s in tradable)}/{len(weights)}"
-                         if tradable else "—")
-
-        c_save, _ = st.columns([1, 2])
-        if c_save.button("💾 Save edited allocation as active strategy",
-                         disabled=not weights):
-            _persist_strategy(weights)
-            st.success("Saved as the active strategy (reloads across restarts).")
-
-        close_untracked = st.checkbox(
-            "Also sell holdings that are not in the target (full rebalance)",
-            value=False,
-            help="Off: only trade the target symbols. On: also liquidate any "
-                 "position not in the target so the account matches exactly.",
-        )
-
-        c1, c2 = st.columns(2)
-        do_preview = c1.button("🔍 Preview plan (no orders sent)",
-                               disabled=not (settings.alpaca_pm_configured and weights))
-        do_send = c2.button("🚀 Send orders to Alpaca (PAPER)", type="primary",
-                            disabled=not (settings.alpaca_pm_configured and weights))
-
-        if not settings.alpaca_pm_configured:
-            st.warning("Set ALPACA_API_KEY / ALPACA_SECRET_KEY to enable trading.")
-
-        if do_preview or do_send:
-            try:
-                # On a real send, read the account's open orders first so an
-                # identical order that is still working is not placed again.
-                open_keys = engine.open_order_keys() if do_send else None
-                plan = engine.rebalance_to_weights(
-                    weights, dry_run=not do_send,
-                    close_untracked=close_untracked,
-                    tradable=tradable or None,
-                    open_keys=open_keys)
-                if not plan:
-                    st.info("Already at target — no trades needed.")
-                else:
-                    _safe_table(pd.DataFrame(plan))
-                    if do_send:
-                        sent = [p for p in plan if p.get("status") == "sent"]
-                        dup = [p for p in plan if p.get("status") == "duplicate"]
-                        failed = [p for p in plan
-                                  if p.get("status") in ("error", "skipped")]
-                        if sent:
-                            st.success(
-                                f"✅ {len(sent)} order(s) sent to the Alpaca paper "
-                                "account. Open the **Journal** tab to watch them fill.")
-                        if dup:
-                            st.info(
-                                f"↪️ {len(dup)} order(s) skipped as duplicates "
-                                "(an identical order is already open).")
-                        if failed:
-                            st.warning(
-                                f"⚠️ {len(failed)} order(s) not sent (untradable or "
-                                "rejected) — the rest still went through. See the "
-                                "`status`/`error` columns above.")
-                        if not (sent or dup or failed):
-                            st.info("No orders were sent.")
-                    else:
-                        st.caption("Nothing was sent — press **Send orders** to "
-                                   "execute this plan on the paper account.")
-            except Exception as exc:  # noqa: BLE001
-                _show_alpaca_error("Rebalance error", exc)
-
-    with sub[2]:
         with st.form("order"):
             cc = st.columns(3)
             symbol = cc[0].text_input("Symbol", value="SPY")
@@ -628,7 +517,7 @@ with tab_paper:
             except Exception as exc:  # noqa: BLE001
                 _show_alpaca_error("Close-all failed", exc)
 
-    with sub[3]:
+    with sub[2]:
         st.caption("Ogni ordine: **quale titolo** e **a che prezzo** è stato eseguito.")
         if st.button("Load order journal", disabled=not settings.alpaca_pm_configured):
             try:
@@ -732,11 +621,17 @@ def _save_pm_strategy(name, criteria, weighting, full_db, cap_sel, risk_level) -
     ))
 
 
-def _execute_pm_weights(weights: dict, invest_pct: float, dry_run: bool):
-    """Build / rebalance the PM paper account to `weights` scaled by invest_pct."""
+def _execute_pm_weights(weights: dict, invest_pct: float, dry_run: bool,
+                        close_untracked: bool = False):
+    """Build / rebalance the PM paper account to `weights` scaled by invest_pct.
+
+    ``close_untracked`` also liquidates positions not in the target, so the
+    account matches the strategy exactly (a full rebalance).
+    """
     eng = AlpacaExecutionEngine(*get_settings().pm_alpaca_keys())
     scaled = {k: float(v) * (invest_pct / 100.0) for k, v in weights.items()}
-    return eng.rebalance_to_weights(scaled, dry_run=dry_run)
+    return eng.rebalance_to_weights(scaled, dry_run=dry_run,
+                                    close_untracked=close_untracked)
 
 
 @st.fragment
@@ -784,7 +679,7 @@ def strategy_lab_panel() -> None:
                         if not w:
                             st.warning("Lo screen non seleziona titoli ora.")
                         else:
-                            plan = _execute_pm_weights(w, 100, False)
+                            plan = _execute_pm_weights(w, 100, False, True)
                             _persist_strategy(w)
                             st.success(f"Ribilanciato su «{s.name}»: {len(plan)} ordini.")
                             st.dataframe(pd.DataFrame(plan), use_container_width=True,
@@ -982,6 +877,11 @@ def strategy_lab_panel() -> None:
             invest_pct = cn[1].slider(
                 "Capitale da investire (%)", 10, 100, 100, 5, key="pm_invest_pct",
                 help="Quota dell'equity del conto PM da allocare alla strategia.")
+            close_untracked = st.checkbox(
+                "Ribilancio completo: vendi anche le posizioni non più in target",
+                value=False, key="pm_close_untracked",
+                help="Spento: compra/adatta solo i titoli della strategia. "
+                     "Acceso: liquida anche ciò che non è più nel target.")
 
             bb = st.columns(3)
             if bb[0].button("💾 Salva strategia", key="pm_save_only"):
@@ -998,7 +898,7 @@ def strategy_lab_panel() -> None:
                 save_state("strategy_meta", {"risk_level": risk_level, "n": len(weights)})
                 if settings.alpaca_pm_configured:
                     try:
-                        plan = _execute_pm_weights(weights, invest_pct, dry_run=False)
+                        plan = _execute_pm_weights(weights, invest_pct, False, close_untracked)
                         st.success(f"✅ «{strat_name}» salvata e **portafoglio costruito**: "
                                    f"{len(plan)} ordini inviati sul conto PM.")
                         st.dataframe(pd.DataFrame(plan), use_container_width=True,
@@ -1013,7 +913,7 @@ def strategy_lab_panel() -> None:
             if bb[2].button("👁 Anteprima ordini (dry-run)", key="pm_dry_confirm"):
                 if settings.alpaca_pm_configured:
                     try:
-                        plan = _execute_pm_weights(weights, invest_pct, dry_run=True)
+                        plan = _execute_pm_weights(weights, invest_pct, True, close_untracked)
                         st.dataframe(pd.DataFrame(plan), use_container_width=True,
                                      hide_index=True)
                     except Exception as exc:  # noqa: BLE001
