@@ -1,0 +1,31 @@
+# Algohns on an Oracle Always-Free VM: private dashboard + 24/7 trader, one box.
+#
+# Both services share ONE named volume mounted at the strategy-store path, so the
+# strategies you save in the app are exactly the ones the trader runs — no
+# external database needed. Everything is paper-only.
+#
+#   docker compose -f docker-compose.oracle.yml up -d --build
+#   docker compose -f docker-compose.oracle.yml logs -f trader
+#
+# The trader only places orders when ALGO_WORKER_ENABLED=true in .env; otherwise
+# it runs in DRY mode and just logs what it would do.
+services:
+  app:
+    build: .
+    command: streamlit run app.py --server.address=0.0.0.0 --server.port=8501
+    ports: ["8501:8501"]
+    env_file: .env
+    volumes:
+      - algohns-cache:/app/algohns/data/cache
+    restart: unless-stopped
+
+  trader:
+    build: .
+    command: python -m algohns.workers.runner
+    env_file: .env
+    volumes:
+      - algohns-cache:/app/algohns/data/cache
+    restart: unless-stopped
+
+volumes:
+  algohns-cache:

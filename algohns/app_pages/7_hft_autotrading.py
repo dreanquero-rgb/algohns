@@ -247,9 +247,10 @@ with tab_risk:
 # ---------------------------------------------------------------------------
 st.divider()
 st.caption(
-    "⏱️ **Esecuzione continua (24/7):** per ora il motore gira *mentre l'app è "
-    "aperta*. Per farlo girare sempre, anche con il browser chiuso, va messo su "
-    "una **VM Oracle Always-Free** (worker dedicato che richiama queste stesse "
-    "strategie dallo strategy store). Vedi `docs/` per lo setup — lo colleghiamo "
-    "quando vuoi passare al continuo."
+    "⏱️ **Esecuzione continua (24/7):** il worker dedicato "
+    "(`python -m algohns.workers.runner`) esegue le strategie HFT **abilitate** "
+    "qui sopra, sempre, anche a browser chiuso. Gira sulla **VM Oracle "
+    "Always-Free** insieme all'app (stesso strategy store). Setup completo in "
+    "`docs/ORACLE_SETUP.md`; il worker invia ordini solo con "
+    "`ALGO_WORKER_ENABLED=true`."
 )
