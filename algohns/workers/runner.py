@@ -100,7 +100,7 @@ def run_hft_cycle(dry: bool) -> dict:
         syms = p.get("symbols", [])
         notional = float(p.get("notional", 1000))
         run_params = {k: v for k, v in p.items()
-                      if k not in ("builtin", "symbols", "notional")}
+                      if k not in ("builtin", "symbols", "notional", "select")}
         signals: dict[str, int] = {}
         for sym in syms:
             try:

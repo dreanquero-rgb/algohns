@@ -17,6 +17,7 @@ from algohns.core import strategy_store as store
 from algohns.core.data_providers import get_market_data
 from algohns.core.persistence import load_state, save_state
 from algohns.modules import hft_strategies as hft
+from algohns.modules import hft_select as hsel
 from algohns.modules.alpaca_execution import AlpacaExecutionEngine, OrderTicket
 from algohns.ui import header
 
@@ -51,17 +52,47 @@ tab_lib, tab_run, tab_risk = st.tabs(
 # ---------------------------------------------------------------------------
 with tab_lib:
     st.subheader("Nuova strategia HFT")
-    kinds = list(hft.HFT_STRATEGIES)
-    kind = st.selectbox(
-        "Tipo", kinds, format_func=lambda k: hft.HFT_STRATEGIES[k]["label"])
-    name = st.text_input("Nome", value=f"{hft.HFT_STRATEGIES[kind]['label']} 1m")
-    symbols_raw = st.text_input(
-        "Simboli (azioni/ETF USA, separati da virgola)", value="AAPL, MSFT, SPY")
 
-    st.markdown("**Parametri**")
+    # --- 1. Algorithmic universe selection (no manual tickers) --------------
+    st.markdown("**1 · Selezione automatica dei titoli** — li sceglie l'algoritmo")
+    st.caption("Universo: **S&P 500** (US-tradable). Filtra per settore e lascia "
+               "che l'algoritmo ordini per la variabile scelta e prenda i primi N. "
+               "(EPS/P-E non disponibili su tutto il mercato: le variabili qui sono "
+               "settore, return a breve e volatilità.)")
+    sectors_all = hsel.sp500_sectors()
+    sel_sectors = st.multiselect("Settori (vuoto = tutti)", sectors_all)
+    sc = st.columns(3)
+    metric = sc[0].selectbox("Variabile di selezione", list(hsel.METRICS),
+                             format_func=lambda k: hsel.METRICS[k])
+    lookback = sc[1].number_input("Lookback (giorni)", 5, 120, 21, 1)
+    n_names = sc[2].number_input("Quanti titoli", 1, 30, 10, 1)
+    if st.button("🔎 Seleziona titoli ora"):
+        with st.spinner("Scarico i prezzi e seleziono i titoli…"):
+            try:
+                picks = hsel.select(sel_sectors, metric, int(lookback), int(n_names))
+            except Exception as exc:  # noqa: BLE001
+                picks = []
+                st.error(f"Selezione non riuscita (dati non disponibili?): {exc}")
+        st.session_state["hft_picks"] = picks
+        st.session_state["hft_select_cfg"] = {
+            "sectors": sel_sectors, "metric": metric,
+            "lookback": int(lookback), "n": int(n_names),
+        }
+    picks = st.session_state.get("hft_picks", [])
+    if picks:
+        st.success(f"Selezionati {len(picks)}: {', '.join(picks)}")
+    else:
+        st.info("Premi **🔎 Seleziona titoli ora**: li sceglie l'algoritmo in base "
+                "a settore + variabile. Non devi scriverli a mano.")
+
+    # --- 2. Intraday execution engine --------------------------------------
+    st.markdown("**2 · Motore di esecuzione intraday (barre 1 min)**")
+    kinds = list(hft.HFT_STRATEGIES)
+    kind = st.selectbox("Tipo", kinds,
+                        format_func=lambda k: hft.HFT_STRATEGIES[k]["label"])
     schema = hft.HFT_STRATEGIES[kind]["params"]
     params: dict = {}
-    pcols = st.columns(max(1, len(schema)))
+    pcols = st.columns(max(1, len(schema)) + 1)
     for i, (pname, pdefault) in enumerate(schema.items()):
         if isinstance(pdefault, int):
             params[pname] = pcols[i].number_input(
@@ -70,20 +101,25 @@ with tab_lib:
             params[pname] = pcols[i].number_input(
                 pname, value=float(pdefault), step=0.001, format="%.4f",
                 key=f"new_{kind}_{pname}")
+    notional = pcols[-1].number_input("$ per posizione", value=1000.0, step=100.0,
+                                      min_value=10.0, key="new_notional")
+    name = st.text_input("Nome strategia",
+                         value=f"{hft.HFT_STRATEGIES[kind]['label']} · {metric}")
 
-    if st.button("💾 Salva strategia", type="primary"):
-        syms = [s.strip().upper() for s in symbols_raw.split(",") if s.strip()]
+    if st.button("💾 Salva strategia", type="primary", disabled=not picks):
         if not name.strip():
             st.error("Dai un nome alla strategia.")
-        elif not syms:
-            st.error("Inserisci almeno un simbolo.")
         else:
             strat = store.Strategy(
                 name=name.strip(), section=SECTION, kind="builtin",
-                params={"builtin": kind, "symbols": syms, **params},
+                params={"builtin": kind, "symbols": picks, "notional": float(notional),
+                        "select": st.session_state.get("hft_select_cfg", {}), **params},
             )
             store.save_strategy(strat)
-            st.success(f"Salvata «{strat.name}». È nella libreria HFT (solo qui).")
+            st.success(f"Salvata «{strat.name}» con {len(picks)} titoli selezionati "
+                       "dall'algoritmo.")
+            for _k in ("hft_picks", "hft_select_cfg"):
+                st.session_state.pop(_k, None)
             st.rerun()
 
     st.divider()
@@ -96,9 +132,16 @@ with tab_lib:
             top = st.columns([4, 1, 1])
             builtin = s.params.get("builtin", "?")
             syms = ", ".join(s.params.get("symbols", []))
+            cfg = s.params.get("select", {}) or {}
+            sel_txt = (f"selezione: {cfg.get('metric', '?')} · "
+                       f"{', '.join(cfg.get('sectors') or ['tutti i settori'])} · "
+                       f"top {cfg.get('n', '?')}" if cfg else "")
+            tune = ', '.join(f'{k}={v}' for k, v in s.params.items()
+                             if k not in ('builtin', 'symbols', 'select'))
             top[0].markdown(
-                f"**{s.name}**  \n`{builtin}` · {syms}  \n"
-                f"<small>{', '.join(f'{k}={v}' for k, v in s.params.items() if k not in ('builtin','symbols'))}</small>",
+                f"**{s.name}**  \n`{builtin}` · {tune}  \n"
+                f"<small>{sel_txt}</small>  \n"
+                f"<small>titoli: {syms}</small>",
                 unsafe_allow_html=True)
             new_en = top[1].toggle("Attiva", value=s.enabled, key=f"en_{s.id}")
             if new_en != s.enabled:
@@ -137,7 +180,7 @@ with tab_run:
         syms = pick.params.get("symbols", [])
         builtin = pick.params.get("builtin")
         run_params = {k: v for k, v in pick.params.items()
-                      if k not in ("builtin", "symbols")}
+                      if k not in ("builtin", "symbols", "notional", "select")}
         st.caption(f"Simboli: {', '.join(syms)} · parametri: {run_params}")
 
         if st.button("📥 Scarica barre 1m & calcola segnali"):
