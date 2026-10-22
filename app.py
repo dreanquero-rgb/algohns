@@ -189,6 +189,9 @@ pages = {
     "② Auto-Trading · HFT": [
         st.Page("algohns/app_pages/7_hft_autotrading.py", title="HFT Engine", icon="🤖"),
     ],
+    "⚡ Trading Floor": [
+        st.Page("algohns/app_pages/9_trading_simulation.py", title="Trading Simulation", icon="⚡"),
+    ],
     "🧩 Developer": [
         st.Page("algohns/app_pages/8_code_studio.py", title="Code Studio", icon="⌨️"),
     ],
