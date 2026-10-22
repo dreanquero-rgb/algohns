@@ -61,6 +61,53 @@ def test_events_eventually_fire_and_hit_the_tape():
     assert abs(spread["IT"]) > 0.0
 
 
+# --------------------------------------------------------------- curve shape
+def test_base_curve_upward_sloping_for_bund():
+    de = next(s for s in rw.UNIVERSE if s.code == "DE")
+    curve = de.base_curve()
+    assert curve[2] < curve[5] < curve[10] < curve[30]   # normal, upward
+
+
+def test_curve_shapes_target_front_vs_long():
+    short, long = rw.CURVE_SHAPES["short"], rw.CURVE_SHAPES["long"]
+    assert short[2] > short[10]      # policy shock bites the front end
+    assert long[30] > long[2]        # fiscal/supply shock bites the long end
+
+
+def test_snapshot_rows_carry_full_curve_and_slope():
+    w = rw.RateWorld(seed=1)
+    for _ in range(20):
+        w.tick()
+    row = {r["code"]: r for r in w.snapshot()["rows"]}["IT"]
+    assert set(row["curve"]) == set(rw.TENORS)
+    # slope_2s10s = (10y - 2y) in bp, matches the curve points.
+    expected = (row["curve"][10]["yield"] - row["curve"][2]["yield"]) * 100
+    assert abs(row["slope_2s10s_bp"] - expected) < 1e-6
+
+
+def test_instrument_and_marks_cover_every_point():
+    w = rw.RateWorld(seed=2)
+    for _ in range(10):
+        w.tick()
+    inst = w.instrument("IT", 30)
+    assert inst["code"] == "IT_30y" and inst["tenor"] == 30
+    assert inst["price"] > 0 and len(inst["history"]) > 0
+    marks = w.marks()
+    assert len(marks) == len(rw.UNIVERSE) * len(rw.TENORS)
+    assert "IT_30y" in marks and "DE_2y" in marks
+
+
+def test_dv01_is_on_a_sane_money_scale():
+    # Guards the percent→decimal conversion: a 10y benchmark must have a money
+    # DV01 of roughly a few hundred to a couple thousand EUR per 1mm, and the
+    # 30y must out-DV01 the 2y. A missed /100 collapses these to ~tens of EUR.
+    w = rw.RateWorld(seed=4)
+    it10 = w.instrument("IT", 10)
+    money_dv01 = it10["dv01"] * 1e4            # EUR per bp per 1mm face
+    assert 400 < money_dv01 < 2500
+    assert w.instrument("IT", 30)["dv01"] > w.instrument("IT", 2)["dv01"]
+
+
 # --------------------------------------------------------------- RFQ panel
 def test_generate_quotes_has_two_sided_live_market():
     rng = np.random.default_rng(1)

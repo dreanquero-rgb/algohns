@@ -73,20 +73,25 @@ class RfqResult:
         return min(live, key=lambda q: q.ask) if live else None
 
 
+#: per-tenor liquidity: the long end quotes wider than the belly.
+_TENOR_LIQUIDITY = {2: 0.9, 5: 1.0, 10: 1.0, 30: 1.35}
+
+
 def generate_quotes(
     *, bond_code: str, bond_name: str, fair_price: float, region: str,
     size_mm: float, difficulty: str, rng: np.random.Generator,
-    n_dealers: int = 5,
+    n_dealers: int = 5, liquidity_mult: float = 1.0,
 ) -> RfqResult:
     """Build a dealer panel around the world's fair price.
 
     The trader never sees ``fair_price`` directly: the composite ``mid_price``
     carries a little display noise, and each dealer quotes around *that* with
-    its own half-spread and an axe. Larger size is shown a slightly worse
-    (wider) market, as on a real venue.
+    its own half-spread and an axe. Larger size and longer tenors
+    (``liquidity_mult``) are shown a slightly worse (wider) market, as on a real
+    venue.
     """
     spread_mult = _DIFFICULTY_SPREAD.get(difficulty, 1.0)
-    base_half = _BASE_HALF_SPREAD.get(region, 0.10) * spread_mult
+    base_half = _BASE_HALF_SPREAD.get(region, 0.10) * spread_mult * liquidity_mult
     # Bigger clips cost more: widen ~10% per extra million over 1mm.
     base_half *= 1.0 + 0.10 * max(0.0, size_mm - 1.0)
 
@@ -251,5 +256,5 @@ class Blotter:
 
 __all__ = [
     "DealerQuote", "RfqResult", "generate_quotes", "DEALERS",
-    "Trade", "Position", "Blotter",
+    "_TENOR_LIQUIDITY", "Trade", "Position", "Blotter",
 ]
