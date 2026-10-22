@@ -42,7 +42,7 @@ st.caption(
     "dati di mercato), dealer simulati, solo paper."
 )
 
-QUOTE_LIFE = 5.0            # seconds a dealer panel stays firm before it fades
+QUOTE_LIFE_DEFAULT = 12.0   # seconds a dealer panel stays firm (overridable in sidebar)
 SCORE_KEY = "trading_sim_score"
 BUND_HELP = "Verde = rendimento in calo (prezzo su). Rosso = rendimento in salita."
 
@@ -81,7 +81,9 @@ with st.sidebar:
     )
     size_mm = st.number_input("Size RFQ (mln nominali)", min_value=0.5,
                               max_value=50.0, value=2.0, step=0.5)
-    n_dealers = st.slider("Dealer interpellati", 2, 6, 5)
+    n_dealers = st.slider("Dealer interpellati", 3, 10, 8)
+    quote_life = st.slider("Durata quota (s)", 5, 30, int(QUOTE_LIFE_DEFAULT),
+                           help="Per quanto restano ferme le quote dei dealer.")
     paused = st.toggle("⏸ Pausa mercato", value=False)
     cols = st.columns(2)
     if cols[0].button("🔄 Reset mondo", use_container_width=True):
@@ -101,6 +103,7 @@ world.set_difficulty(difficulty)
 world.paused = bool(paused)
 ss["ts_size_cache"] = size_mm
 ss["ts_dealers_cache"] = n_dealers
+ss["ts_quote_life"] = float(quote_life)
 
 
 # ---------------------------------------------------------------------------
@@ -282,11 +285,12 @@ def rfq_desk() -> None:
         return
 
     res = rfq["res"]
-    remaining = QUOTE_LIFE - (time.time() - rfq["ts"])
+    life_s = ss.get("ts_quote_life", QUOTE_LIFE_DEFAULT)
+    remaining = life_s - (time.time() - rfq["ts"])
     expired = remaining <= 0
     bb, ba = res.best_bid, res.best_ask
 
-    st.progress(max(0.0, min(1.0, remaining / QUOTE_LIFE)),
+    st.progress(max(0.0, min(1.0, remaining / life_s)),
                 text=("⏱ quota scaduta — rifai RFQ" if expired
                       else f"⏱ {remaining:.1f}s · firm"))
     lines = ["<table style='width:100%;border-collapse:collapse;"

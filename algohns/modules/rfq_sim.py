@@ -33,6 +33,8 @@ _DIFFICULTY_SPREAD = {"Calmo": 0.7, "Normale": 1.0, "Volatile": 1.8}
 DEALERS: tuple[str, ...] = (
     "Falcon Capital", "Meridian Bank", "Northwind Securities",
     "Blackgate Partners", "Stellar IB", "Onyx Markets",
+    "Kestrel Securities", "Granite Bank", "Lumen Capital",
+    "Aurora Markets", "Vanta Partners", "Cobalt IB",
 )
 
 
@@ -101,9 +103,9 @@ def generate_quotes(
     chosen = list(DEALERS[:max(2, n_dealers)])
     quotes: list[DealerQuote] = []
     for name in chosen:
-        responded = rng.random() > 0.15        # ~15% chance of no quote
-        half = base_half * rng.uniform(0.8, 1.7)
-        axe = rng.normal(0.0, base_half * 0.6)  # inventory skew, both sides
+        responded = rng.random() > 0.08        # ~8% chance of no quote
+        half = base_half * rng.uniform(0.75, 1.9)
+        axe = rng.normal(0.0, base_half * 0.8)  # inventory skew, both sides
         dmid = mid_price + axe + rng.normal(0.0, base_half * 0.15)
         quotes.append(DealerQuote(
             dealer=name,

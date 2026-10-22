@@ -111,7 +111,7 @@ class CountrySpec:
     freq: int               # coupons per year (EU annual, US/UK/JP semi-annual)
     beta_riskoff: float     # risk-off loading (+ risky, - safe haven)
     tick_vol_bp: float      # idiosyncratic per-tick yield std-dev, in bp
-    kappa: float = 0.06     # pull-back strength toward base per tick
+    kappa: float = 0.04     # pull-back strength toward base per tick (lower = roams further)
 
     def base_curve(self) -> dict[int, float]:
         """Base yield for each tenor."""
@@ -125,28 +125,30 @@ class CountrySpec:
 
 # ~15 sovereigns across six contagion clusters. Levels are plausible but
 # indicative — this is a trainer, not a data feed.
+# NB: ``tick_vol_bp`` is the per-tick yield jitter — tuned lively on purpose so
+# the tape never sits still; "Calmo" halves it, "Volatile" doubles it again.
 UNIVERSE: tuple[CountrySpec, ...] = (
     # ---- Core euro (the safe side of the single currency) ----
-    CountrySpec("DE", "Germany (Bund)",      "🇩🇪", "Core EU",      "AAA", 2.00, 2.55, 0.45, 1, -1.00, 0.18),
-    CountrySpec("NL", "Netherlands (DSL)",   "🇳🇱", "Core EU",      "AAA", 2.20, 2.78, 0.45, 1, -0.75, 0.20),
-    CountrySpec("FR", "France (OAT)",        "🇫🇷", "Core EU",      "AA-", 2.50, 3.25, 0.55, 1, -0.10, 0.24),
+    CountrySpec("DE", "Germany (Bund)",      "🇩🇪", "Core EU",      "AAA", 2.00, 2.55, 0.45, 1, -1.00, 0.40),
+    CountrySpec("NL", "Netherlands (DSL)",   "🇳🇱", "Core EU",      "AAA", 2.20, 2.78, 0.45, 1, -0.75, 0.42),
+    CountrySpec("FR", "France (OAT)",        "🇫🇷", "Core EU",      "AA-", 2.50, 3.25, 0.55, 1, -0.10, 0.50),
     # ---- Euro periphery (the contagion cluster) ----
-    CountrySpec("IT", "Italy (BTP)",         "🇮🇹", "Periphery EU", "BBB", 2.80, 3.55, 0.75, 1,  1.15, 0.34),
-    CountrySpec("ES", "Spain (Bono)",        "🇪🇸", "Periphery EU", "A",   2.60, 3.15, 0.60, 1,  0.85, 0.30),
-    CountrySpec("PT", "Portugal (OT)",       "🇵🇹", "Periphery EU", "A-",  2.50, 3.00, 0.55, 1,  0.95, 0.30),
-    CountrySpec("GR", "Greece (GGB)",        "🇬🇷", "Periphery EU", "BBB", 2.80, 3.35, 0.70, 1,  1.30, 0.38),
+    CountrySpec("IT", "Italy (BTP)",         "🇮🇹", "Periphery EU", "BBB", 2.80, 3.55, 0.75, 1,  1.15, 0.70),
+    CountrySpec("ES", "Spain (Bono)",        "🇪🇸", "Periphery EU", "A",   2.60, 3.15, 0.60, 1,  0.85, 0.62),
+    CountrySpec("PT", "Portugal (OT)",       "🇵🇹", "Periphery EU", "A-",  2.50, 3.00, 0.55, 1,  0.95, 0.62),
+    CountrySpec("GR", "Greece (GGB)",        "🇬🇷", "Periphery EU", "BBB", 2.80, 3.35, 0.70, 1,  1.30, 0.78),
     # ---- Anglosphere ----
-    CountrySpec("US", "US Treasury",         "🇺🇸", "Anglo",        "AA+", 3.90, 4.15, 0.35, 2, -0.65, 0.22),
-    CountrySpec("GB", "UK Gilt",             "🇬🇧", "Anglo",        "AA",  4.20, 4.55, 0.40, 2,  0.15, 0.28),
+    CountrySpec("US", "US Treasury",         "🇺🇸", "Anglo",        "AA+", 3.90, 4.15, 0.35, 2, -0.65, 0.48),
+    CountrySpec("GB", "UK Gilt",             "🇬🇧", "Anglo",        "AA",  4.20, 4.55, 0.40, 2,  0.15, 0.58),
     # ---- Japan ----
-    CountrySpec("JP", "Japan (JGB)",         "🇯🇵", "Japan",        "A+",  0.70, 1.62, 0.70, 2, -0.85, 0.16),
+    CountrySpec("JP", "Japan (JGB)",         "🇯🇵", "Japan",        "A+",  0.70, 1.62, 0.70, 2, -0.85, 0.34),
     # ---- LatAm EM ----
-    CountrySpec("BR", "Brazil (NTN-F)",      "🇧🇷", "LatAm EM",     "BB",  11.2, 11.6, 0.30, 2,  1.45, 0.95),
-    CountrySpec("MX", "Mexico (Mbono)",      "🇲🇽", "LatAm EM",     "BBB", 9.30, 9.10, -0.10, 2,  1.10, 0.80),
+    CountrySpec("BR", "Brazil (NTN-F)",      "🇧🇷", "LatAm EM",     "BB",  11.2, 11.6, 0.30, 2,  1.45, 1.90),
+    CountrySpec("MX", "Mexico (Mbono)",      "🇲🇽", "LatAm EM",     "BBB", 9.30, 9.10, -0.10, 2,  1.10, 1.60),
     # ---- EMEA EM ----
-    CountrySpec("ZA", "South Africa (R)",    "🇿🇦", "EMEA EM",      "BB",  8.50, 9.55, 1.20, 2,  1.50, 0.95),
-    CountrySpec("TR", "Türkiye (CPI-linked)","🇹🇷", "EMEA EM",      "B",   30.0, 28.0, -1.50, 2,  2.00, 2.20),
-    CountrySpec("PL", "Poland (POLGB)",      "🇵🇱", "EMEA EM",      "A-",  5.00, 5.55, 0.50, 1,  1.00, 0.45),
+    CountrySpec("ZA", "South Africa (R)",    "🇿🇦", "EMEA EM",      "BB",  8.50, 9.55, 1.20, 2,  1.50, 1.90),
+    CountrySpec("TR", "Türkiye (CPI-linked)","🇹🇷", "EMEA EM",      "B",   30.0, 28.0, -1.50, 2,  2.00, 4.20),
+    CountrySpec("PL", "Poland (POLGB)",      "🇵🇱", "EMEA EM",      "A-",  5.00, 5.55, 0.50, 1,  1.00, 0.95),
 )
 
 
@@ -334,7 +336,7 @@ class RateWorld:
         """
         vol_mult, ev_mult = self.DIFFICULTY.get(self.difficulty, (1.0, 1.0))
         with self._lock:
-            common = self.rng.standard_normal() * 0.6 * vol_mult   # bp, shared
+            common = self.rng.standard_normal() * 1.1 * vol_mult   # bp, shared
             for cs in self.states.values():
                 s = cs.spec
                 for t in TENORS:
@@ -348,7 +350,7 @@ class RateWorld:
                 cs.refresh_prices()
                 for t in TENORS:
                     cs.hist[t].append(cs.price[t])
-            base_rate_per_tick = 0.012 * ev_mult   # ~1 event / 12s at Normale
+            base_rate_per_tick = 0.022 * ev_mult   # ~1 event / 7s at Normale
             if self.rng.random() < base_rate_per_tick:
                 self._fire_event()
             self.ticks += 1
